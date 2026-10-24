@@ -1,0 +1,11 @@
+# Recorded activity and runtime files - never publish these
+data/
+*.jsonl
+*.pid
+*.log
+.last-start
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/

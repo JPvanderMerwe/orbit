@@ -1,0 +1,12 @@
+{
+  "name": "orbit",
+  "description": "Orbit: see everything Claude Code does, live.",
+  "owner": { "name": "JPvanderMerwe", "url": "https://github.com/JPvanderMerwe" },
+  "plugins": [
+    {
+      "name": "orbit",
+      "source": "./plugins/orbit",
+      "description": "A live, animated map of every file Claude Code reads, command it runs and change it makes, with session replay, cost tracking and shareable reports."
+    }
+  ]
+}

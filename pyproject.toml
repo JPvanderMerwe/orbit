@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orbit-viewer"
+version = "3.0.0"
+description = "Orbit: see everything Claude Code does. A live, animated map of every file it reads, command it runs and change it makes, with replay, cost tracking, chat history and shareable reports."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "JPvanderMerwe" }]
+keywords = ["claude", "claude-code", "visualization", "dashboard", "observability", "hooks", "replay", "cost"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/JPvanderMerwe/orbit"
+
+[project.scripts]
+orbit = "orbit.cli:main"
+
+[tool.setuptools]
+packages = ["orbit"]
+package-dir = { "orbit" = "plugins/orbit/scripts" }
+
+[tool.setuptools.package-data]
+orbit = ["dashboard.html", "vendor/*"]
