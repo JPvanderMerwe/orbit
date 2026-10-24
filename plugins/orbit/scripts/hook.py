@@ -6,7 +6,7 @@ the Orbit server and exits. If the server is not running it starts it in
 the background (at most once every 10 seconds) and retries once.
 
 It never blocks or breaks Claude: every failure is silent and it always
-exits with code 0 within about a second.
+exits with code 0, normally within milliseconds and at most a few seconds.
 """
 import json
 import os
@@ -112,7 +112,8 @@ def post(payload):
         headers={"Content-Type": "application/json", KEY_HEADER: access_key()},
         method="POST",
     )
-    urllib.request.urlopen(request, timeout=1).read()
+    # Generous: a briefly busy server must not cost an event (the hook itself is allowed 5 seconds)
+    urllib.request.urlopen(request, timeout=3).read()
 
 
 def main():

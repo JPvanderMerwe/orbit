@@ -26,6 +26,7 @@ import secrets
 import shutil
 import signal
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -70,6 +71,8 @@ subscribers = []
 subscribers_lock = threading.Lock()
 next_id = 1
 TOKEN = ""
+BOOT = uuid.uuid4().hex[:12]  # changes every time the server starts
+HEARTBEAT = 5                 # seconds between heartbeats on the live stream
 
 
 # ---------------------------------------------------------------- access key
@@ -113,6 +116,7 @@ def load_history():
             events.append(event)
             if isinstance(event, dict):
                 note_transcript(event)
+                note_hooked(event)
             if len(events) > MAX_EVENTS * 2:
                 del events[:-MAX_EVENTS]
     del events[:-MAX_EVENTS]
@@ -127,6 +131,7 @@ def add_event(payload):
     with events_lock:
         event = {"id": next_id, "received_at": time.time(), **payload}
         note_transcript(event)
+        note_hooked(event)
         next_id += 1
         events.append(event)
         del events[:-MAX_EVENTS]
@@ -651,6 +656,257 @@ terminals = {}
 terminals_lock = threading.Lock()
 
 
+# ---------------------------------------------------------------- running sessions
+# Claude Code keeps one small file per running session in ~/.claude/sessions/<pid>.json (process id,
+# session id, folder, name, busy/idle). Orbit reads them to list every running session on this computer.
+# A session that sends no hook events (it started before Orbit was switched on) is followed through
+# its saved conversation instead, so it still shows live.
+SESSIONS_DIR = CLAUDE_DIR / "sessions"
+FOLLOW_FILE = DATA_DIR / "followed.json"
+LIVE_EVERY = 1.0
+live = {}             # Claude session id -> running session info
+live_lock = threading.Lock()
+hooked = set()        # session ids that send hook events
+last_hook = {}        # session id -> time of its latest hook event
+followed = {}         # session id -> {"offset", "path", "tools", "cwd"} for sessions read from their transcript
+follow_lock = threading.Lock()
+saved_offsets = {}    # session id -> transcript offset already turned into events (survives restarts)
+
+
+def note_hooked(event):
+    if event.get("source") == "claude-code" and isinstance(event.get("session_id"), str):
+        hooked.add(event["session_id"])
+        last_hook[event["session_id"]] = event.get("received_at") or time.time()
+
+
+def proc_is_claude(pid, proc_start):
+    """True if pid is still the Claude process its session file describes, not a reused process id."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    stat = Path(f"/proc/{pid}/stat")
+    if stat.exists():  # Linux: the process start time must match the one Claude recorded
+        try:
+            return not proc_start or stat.read_text().rsplit(")", 1)[1].split()[19] == str(proc_start)
+        except (OSError, IndexError):
+            return False
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "claude" in out
+
+
+def scan_live():
+    with terminals_lock:
+        term_by_pid = {t.pid: t.id for t in terminals.values() if t.alive}
+    found = {}
+    for f in SESSIONS_DIR.glob("*.json"):
+        try:
+            info = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(info, dict):
+            continue
+        sid, pid = info.get("sessionId"), info.get("pid")
+        if not isinstance(sid, str) or not SESSION_ID_OK.match(sid) or not isinstance(pid, int) or isinstance(pid, bool):
+            continue
+        if not proc_is_claude(pid, info.get("procStart")):
+            continue
+        found[sid] = {"session_id": sid, "pid": pid, "cwd": str(info.get("cwd") or ""), "name": str(info.get("name") or ""),
+                      "status": str(info.get("status") or ""), "started": (info.get("startedAt") or 0) / 1000,
+                      "term_id": term_by_pid.get(pid), "hooks": sid in hooked}
+    return found
+
+
+def transcript_events(sid, cwd, path, rows, tools, hooked=False):
+    """Hook-style events for transcript rows, so the dashboard treats a followed session like any other.
+
+    For a session that sends hook events, only what hooks never report is taken from the transcript:
+    the text Claude writes between steps."""
+    base = {"session_id": sid, "cwd": cwd, "transcript_path": path, "source": "transcript"}
+    out = []
+    for row in rows:
+        if row.get("isSidechain"):
+            continue
+        t = iso_time(row["timestamp"]) if row.get("timestamp") else time.time()
+        if row.get("type") == "system" and row.get("subtype") == "turn_duration":
+            if not hooked:
+                out.append({**base, "hook_event_name": "Stop", "received_at": t})
+            continue
+        msg = row.get("message") if isinstance(row.get("message"), dict) else None
+        if not msg:
+            continue
+        if row.get("type") == "assistant":
+            for b in msg.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
+                    out.append({**base, "hook_event_name": "AssistantText", "text": clip(b["text"], 20000), "received_at": t})
+        if hooked:
+            continue
+        if row.get("type") == "user":
+            text = human_text(row)
+            if text is not None:
+                out.append({**base, "hook_event_name": "UserPromptSubmit", "prompt": clip(text, 20000), "received_at": t})
+                continue
+            content = msg.get("content")
+            for b in content if isinstance(content, list) else []:
+                if not (isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in tools):
+                    continue
+                name, tool_input = tools.pop(b["tool_use_id"])
+                res = row.get("toolUseResult")
+                response = clip(res) if isinstance(res, dict) else clip(result_text(b.get("content")))
+                out.append({**base, "hook_event_name": "PostToolUseFailure" if b.get("is_error") else "PostToolUse",
+                            "tool_name": name, "tool_input": tool_input, "tool_use_id": b["tool_use_id"],
+                            "tool_response": response, "received_at": t})
+        elif row.get("type") == "assistant":
+            for b in msg.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    tools[b.get("id")] = (b.get("name", ""), clip(b.get("input"), 8000))
+                    out.append({**base, "hook_event_name": "PreToolUse", "tool_name": b.get("name", ""),
+                                "tool_input": clip(b.get("input"), 8000), "tool_use_id": b.get("id"), "received_at": t})
+    return out
+
+
+def last_turn_offset(path, size):
+    """Where the latest prompt starts in a transcript, so following a session begins with its current turn.
+
+    Looks back further and further (a long turn can fill megabytes); starts at the end if none is found."""
+    window = EDGE
+    while True:
+        start = max(0, size - window)
+        with open(path, "rb") as f:
+            f.seek(start)
+            data = f.read(size - start)
+        pos, found = 0, None
+        for i, line in enumerate(data.split(b"\n")):
+            if not (i == 0 and start) and b'"user"' in line:  # the first line of a chunk read mid-file is only partial
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    row = None
+                if isinstance(row, dict) and human_text(row) is not None:
+                    found = start + pos
+            pos += len(line) + 1
+        if found is not None:
+            return found
+        if start == 0 or window >= 32 * 1024 * 1024:
+            return size
+        window *= 4
+
+
+def follow(sid, cwd, path=None):
+    """Turn whatever is new in a session's transcript into events. Called by the session watcher and,
+    for sessions that send hook events, just before each hook event is added, so Claude's text lands
+    in the right order between steps."""
+    with follow_lock:
+        hooked_now = sid in hooked
+        f = followed.get(sid)
+        if f is None:
+            found = Path(path) if path and os.path.isabs(path) and path.endswith(".jsonl") else find_transcript(sid)
+            if not found:
+                return
+            offset = saved_offsets.get(sid)
+            if offset is None:
+                try:
+                    size = found.stat().st_size
+                except OSError:
+                    size = 0  # a brand-new session: its transcript does not exist yet, so read it from the start
+                if hooked_now:
+                    offset = size  # hooks already reported everything before now
+                else:
+                    offset = last_turn_offset(found, size) if size else 0
+                    add_event({"session_id": sid, "cwd": cwd, "transcript_path": str(found), "source": "transcript",
+                               "hook_event_name": "SessionStart", "source_type": "follow"})
+            f = followed[sid] = {"offset": offset, "path": str(found), "tools": {}, "cwd": cwd}
+        try:
+            size = os.path.getsize(f["path"])
+        except OSError:
+            return
+        if size < f["offset"]:
+            f["offset"] = 0
+        if size == f["offset"]:
+            return
+        with open(f["path"], "rb") as fh:
+            fh.seek(f["offset"])
+            data = fh.read(min(size - f["offset"], 8 * 1024 * 1024))
+        end = data.rfind(b"\n")
+        if end < 0:
+            return
+        f["offset"] += end + 1
+        rows = [r for r in _lines(data[:end], False)]
+        for event in transcript_events(sid, cwd or f["cwd"], f["path"], rows, f["tools"], hooked_now):
+            add_event(event)
+        saved_offsets[sid] = f["offset"]
+
+
+def save_offsets():
+    keep = {sid: off for sid, off in saved_offsets.items() if sid in live}
+    try:
+        FOLLOW_FILE.write_text(json.dumps(keep))
+    except OSError:
+        pass
+
+
+def watch_live():
+    while True:
+        try:
+            now = scan_live()
+            with live_lock:
+                gone = [sid for sid in live if sid not in now]
+                changed = now != live
+                live.clear()
+                live.update(now)
+            for sid in gone:
+                with follow_lock:
+                    f = followed.pop(sid, None)
+                # Sessions that send hook events report their own end
+                if f is not None and sid not in hooked:
+                    add_event({"session_id": sid, "source": "transcript", "hook_event_name": "SessionEnd"})
+            before = dict(saved_offsets)
+            for sid, info in now.items():
+                # Give a new session a moment to send its first hook event before following its transcript
+                if sid in hooked or time.time() - info["started"] > 5:
+                    follow(sid, info["cwd"])
+            # A session that sends hook events but has no session file (older Claude Code): keep reading its
+            # transcript while it is active, so text written after its latest hook event still shows
+            with follow_lock:
+                extra = [(sid, f["cwd"]) for sid, f in followed.items()
+                         if sid not in now and sid in hooked and time.time() - last_hook.get(sid, 0) < 1800]
+            for sid, cwd in extra:
+                follow(sid, cwd)
+            if changed:
+                broadcast({"id": 0, "kind": "live", "sessions": list(now.values())})
+            if saved_offsets != before or gone:
+                save_offsets()
+        except Exception as e:  # noqa: BLE001 - keep watching whatever one bad file does
+            print(f"Orbit: session watcher: {e}", file=sys.stderr, flush=True)
+        time.sleep(LIVE_EVERY)
+
+
+def wait_until_closed(info, timeout=8):
+    for _ in range(int(timeout / 0.2)):
+        if not proc_is_claude(info["pid"], None):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def close_session(info):
+    """Close a running Claude session the way closing its window would; False if it could not be signalled."""
+    if info.get("term_id"):
+        with terminals_lock:
+            t = terminals.get(info["term_id"])
+        if t:
+            t.kill()
+            return True
+    try:
+        os.kill(info["pid"], signal.SIGTERM)
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------- websocket
 class WebSocket:
     """Minimal RFC 6455 server side: text/binary frames, ping/pong, close."""
@@ -805,8 +1061,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json(404, {"error": "not found"})
         elif path == "/events":
+            try:
+                after = int(parse_qs(url.query).get("after", ["0"])[0])
+            except ValueError:
+                after = 0
             with events_lock:
-                self._json(200, events)
+                self._json(200, [e for e in events if e.get("id", 0) > after] if after else events)
         elif path == "/stream":
             self._stream()
         elif path == "/api/terms":
@@ -821,6 +1081,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if chat else 404, chat or {"error": "conversation not found"})
         elif path == "/api/status":
             self._json(200, plan_status)
+        elif path == "/api/live":
+            with live_lock:
+                self._json(200, {"sessions": list(live.values())})
         elif path == "/api/usage":
             self._json(200, usage_report(parse_qs(url.query).get("session", ["*"])[0]))
         elif path == "/api/ls":
@@ -844,6 +1107,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad json"})
             return
         if path == "/event":
+            note_hooked(body)
+            sid = body.get("session_id")
+            if body.get("source") == "claude-code" and isinstance(sid, str) and SESSION_ID_OK.match(sid):
+                try:
+                    follow(sid, str(body.get("cwd") or ""), body.get("transcript_path"))
+                except Exception as e:  # noqa: BLE001 - the hook event itself must always get through
+                    print(f"Orbit: transcript read: {e}", file=sys.stderr, flush=True)
             event = add_event(body)
             self._json(200, {"id": event["id"]})
         elif path == "/clear":
@@ -864,6 +1134,8 @@ class Handler(BaseHTTPRequestHandler):
             if t:
                 t.kill()
             self._json(200, {"ok": bool(t)})
+        elif path.startswith("/api/live/") and path.count("/") == 4 and path.rsplit("/", 1)[1] in ("stop", "move"):
+            self._live_action(path.split("/")[3], path.rsplit("/", 1)[1], body)
         elif path.startswith("/api/terms/") and path.endswith("/forget"):
             with terminals_lock:
                 t = terminals.get(path.split("/")[3])
@@ -890,6 +1162,47 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
         self._json(200, {"ok": True})
+
+    def _live_action(self, sid, action, body):
+        with live_lock:
+            info = dict(live.get(sid) or {})
+        if not info:
+            self._json(404, {"error": "That session is no longer running."})
+            return
+        if action == "move" and info.get("term_id"):
+            with terminals_lock:
+                t = terminals.get(info["term_id"])
+            if t:
+                self._json(200, t.info())
+                return
+        if action == "move" and not HAS_PTY:
+            self._json(501, {"error": "Built-in terminals need macOS or Linux."})
+            return
+        if action == "move" and info["status"] == "busy" and not body.get("force"):
+            self._json(409, {"error": "Claude is working in that session right now.", "busy": True})
+            return
+        if not close_session(info):
+            self._json(500, {"error": "Could not close that session."})
+            return
+        if action == "stop":
+            self._json(200, {"ok": True})
+            return
+        # Only one copy of a conversation may run at a time: wait for the old one to close, then resume it here
+        if not wait_until_closed(info):
+            self._json(500, {"error": "The session did not close, so it was not moved. Close it in its own terminal and try again."})
+            return
+        cwd = info["cwd"] if os.path.isdir(info["cwd"]) else str(Path.home())
+        # A session closed before anything was said has no saved conversation to resume: start fresh in its folder
+        args = ["--resume", sid] if find_transcript(sid) else []
+        try:
+            t = Terminal(cwd, body.get("cols", 110), body.get("rows", 32), args)
+        except Exception as e:  # noqa: BLE001 - reported to the user
+            self._json(500, {"error": str(e)})
+            return
+        with terminals_lock:
+            terminals[t.id] = t
+        broadcast({"id": 0, "kind": "terminal", "terminal": t.info()})
+        self._json(200, t.info())
 
     def _list_dir(self, raw):
         p = Path(os.path.expanduser(raw or "~")).resolve()
@@ -972,20 +1285,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.close_connection = True
-        self.wfile.write(b": connected\n\n")
-        self.wfile.flush()
         q = queue.Queue()
         with subscribers_lock:
             subscribers.append(q)
+        # A heartbeat the page can see (comments are invisible to it): it carries this server's start id,
+        # so the page notices a restart, and the newest event id, so it can fetch anything it missed
+        beat = lambda kind: f"data: {json.dumps({'id': 0, 'kind': kind, 'boot': BOOT, 'last': next_id - 1})}\n\n".encode()
         try:
+            self.wfile.write(beat("hello"))
+            self.wfile.flush()
             while True:
                 try:
-                    event = q.get(timeout=15)
+                    event = q.get(timeout=HEARTBEAT)
                     self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
                 except queue.Empty:
-                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.write(beat("ping"))
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (OSError, ValueError):
             pass
         finally:
             with subscribers_lock:
@@ -1016,6 +1332,11 @@ def main():
         sys.exit(1)
     server.daemon_threads = True
     load_history()
+    try:
+        saved_offsets.update({k: int(v) for k, v in json.loads(FOLLOW_FILE.read_text()).items()})
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    threading.Thread(target=watch_live, daemon=True).start()
     PID_FILE.write_text(str(os.getpid()))
     print(f"Orbit {VERSION} running at http://{HOST}:{PORT}", flush=True)
     try:

@@ -2,7 +2,7 @@
 """Orbit - see everything Claude Code does.
 
     orbit                     start Orbit if needed and open it in the browser
-    orbit session <id>        open it straight on one Claude session
+    orbit session <id>        open one Claude session in Orbit's workspace (resumes it there if it runs elsewhere)
     orbit new [folder]        open it and start a new Claude session in a workspace
     orbit chats               open every saved Claude Code conversation
     orbit url                 print the private link without opening a browser
@@ -22,12 +22,13 @@ import shutil
 import signal
 import sys
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hook import DATA_DIR, URL, access_key, migrate_old_data, server_up, start_server  # noqa: E402
+from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server  # noqa: E402
 
 VERSION = "3.0.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
@@ -57,6 +58,50 @@ def ensure_running():
 
 def private_link(fragment=""):
     return f"{URL}/?k={access_key()}" + (f"#{fragment}" if fragment else "")
+
+
+def api(method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(f"{URL}{path}", data=data, method=method,
+                                     headers={"Content-Type": "application/json", KEY_HEADER: access_key()})
+    with urllib.request.urlopen(request, timeout=5) as r:
+        return json.loads(r.read())
+
+
+def session_cwd(sid):
+    """The folder a Claude session runs in, read from its saved transcript."""
+    for path in (claude_dir() / "projects").glob(f"*/{sid}.jsonl"):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(row, dict) and row.get("cwd"):
+                        return row["cwd"]
+        except OSError:
+            pass
+    return os.getcwd()
+
+
+def workspace_for(sid):
+    """Orbit's workspace terminal for a session, as (terminal id, newly resumed), or None if there can't be one.
+
+    Reuses the terminal the session already runs in (or one an earlier /orbit resumed it in);
+    otherwise starts a new one that resumes the conversation."""
+    info = api("GET", "/api/terms")
+    if not info.get("supported") or not info.get("claude"):
+        return None
+    alive = {t["id"]: t for t in info.get("terms", []) if t.get("alive")}
+    here = os.environ.get("ORBIT_TERM_ID")
+    if here in alive:
+        return here, False
+    for t in alive.values():
+        if t.get("args") == ["--resume", sid]:
+            return t["id"], False
+    t = api("POST", "/api/terms", {"cwd": session_cwd(sid), "mode": "resume", "session": sid, "cols": 110, "rows": 32})
+    return t["id"], True
 
 
 # ---------------------------------------------------------------- standalone hooks
@@ -230,8 +275,16 @@ def main():
     if not ensure_running():
         sys.exit(1)
     fragment = ""
+    moved = False
     if action == "session" and len(args) > 1:
-        fragment = "/s/" + quote(args[1], safe="")
+        try:
+            ws = workspace_for(args[1])
+        except (OSError, ValueError, KeyError):
+            ws = None
+        if ws:
+            fragment, moved = "/term/" + ws[0], ws[1]
+        else:  # no built-in terminals here (e.g. Windows): show the session's map instead
+            fragment = "/s/" + quote(args[1], safe="")
     elif action == "new":
         folder = os.path.abspath(os.path.expanduser(args[1])) if len(args) > 1 else os.getcwd()
         fragment = "/new/" + quote(folder, safe="")
@@ -243,6 +296,9 @@ def main():
         return
     opened = webbrowser.open(link)
     print(f"Orbit opened at {URL}" if opened else f"Open this private link in your browser: {link}")
+    if moved:
+        print("This conversation now continues in Orbit's workspace. Close this terminal (type /exit) "
+              "so the conversation is only open in one place.")
 
 
 if __name__ == "__main__":

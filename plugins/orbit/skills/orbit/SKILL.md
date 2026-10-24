@@ -22,7 +22,8 @@ Run exactly one command with the Bash tool, chosen from the user's argument:
 The user's argument: $ARGUMENTS
 
 Then reply in one or two short lines:
-- (none) or `all`: say Orbit opened in their browser (on this session, or on all sessions).
+- (none): say Orbit opened in their browser on this session's workspace. If the command said the conversation now continues in Orbit's workspace, tell them to type /exit here to close this terminal, so the conversation is only open in one place.
+- `all`: say Orbit opened in their browser on all sessions.
 - `chats`: say Orbit opened on their saved conversations.
 - `new`: say the launcher opened in their browser, where they pick a folder and press Launch Claude.
 - `statusline`, `statusline off`, `status` or `stop`: repeat what the command printed.

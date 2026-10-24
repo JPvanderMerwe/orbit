@@ -131,7 +131,7 @@ body[data-view="monitor"] #bg { opacity: 0; }
 .card-stats b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; }
 .card-stats span { font-size: 11px; color: var(--muted); }
 .card-last { margin-top: 12px; font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.9em; font-style: italic; position: relative; }
-.card-cta { margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--hc); display: flex; align-items: center; gap: 6px; position: relative; }
+.card-cta { margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--hc); display: flex; align-items: center; gap: 6px; white-space: nowrap; position: relative; }
 .card-cta span { transition: transform .25s; }
 .card:hover .card-cta span { transform: translateX(6px); }
 .empty-big { max-width: 560px; margin: 40px auto; text-align: center; color: var(--muted); animation: fadeUp .6s both; }
@@ -209,6 +209,8 @@ body[data-view="monitor"] #bg { opacity: 0; }
 .b-kick { font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--bc); }
 .b-title { font-size: 17px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .b-sub { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-time { margin-top: 3px; font-size: 11.5px; font-weight: 700; color: var(--bc); font-variant-numeric: tabular-nums; }
+.b-time:empty { display: none; }
 .legend { position: absolute; left: 12px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); pointer-events: none; max-width: calc(100% - 24px); z-index: 1; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }
 .legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
@@ -548,6 +550,36 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
 .ch-more { justify-self: center; }
 .card-chat { margin-left: auto; font-size: 11.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer; }
 .card-chat:hover { color: var(--accent); border-color: var(--accent); }
+.card-act { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.card-act:hover { color: var(--accent); border-color: var(--accent); }
+.card-act.stop:hover { color: var(--c-fail); border-color: var(--c-fail); }
+.running { max-width: 1200px; margin: 0 auto 22px; animation: fadeUp .6s both; }
+.run-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.run-head h2 { margin: 0; font-size: 15px; letter-spacing: .02em; }
+.run-head span { color: var(--muted); font-size: 12.5px; }
+.run-list { display: grid; gap: 8px; }
+.run-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 90px 70px auto; gap: 14px; align-items: center; padding: 10px 14px; border-radius: 14px; background: var(--glass); border: 1px solid var(--border); backdrop-filter: blur(10px); cursor: pointer; transition: border-color .2s, transform .2s; }
+.run-row:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.run-row.working { border-color: color-mix(in srgb, var(--c-edit) 35%, var(--border)); }
+.run-row.needs { border-color: color-mix(in srgb, var(--c-wait) 50%, var(--border)); }
+.run-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.run-name > div { display: grid; min-width: 0; }
+.run-name i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.run-row.working .run-name i { background: var(--c-edit); animation: ping 1.4s infinite; }
+.run-row.needs .run-name i { background: var(--c-wait); animation: pingAmber 1.2s infinite; }
+.run-row.idle .run-name i { background: var(--c-cmd); }
+.run-name b, .run-name small, .run-where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-name small, .run-where { color: var(--muted); font-size: 12px; }
+.run-state { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.run-row.working .run-state { color: var(--c-edit); }
+.run-row.needs .run-state { color: var(--c-wait); }
+.run-cost { color: var(--c-gold); font-weight: 700; font-size: 13px; }
+.run-acts { display: flex; gap: 6px; justify-content: flex-end; }
+.modal.small { width: min(460px, 100%); }
+@media (max-width: 860px) {
+  .run-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .run-where, .run-cost, .run-state { display: none; }
+}
 .pend { display: none !important; }
 .diff .gap { display: block !important; padding: 2px 12px; font-size: 11px; }
 @media (max-width: 860px) {
@@ -646,6 +678,10 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
         <span id="hiddenNote"></span>
       </div>
     </div>
+    <section id="running" class="running hidden">
+      <div class="run-head"><h2>Running now</h2><span id="runCount"></span></div>
+      <div id="runList" class="run-list"></div>
+    </section>
     <div id="cards" class="cards"></div>
     <div id="noSessions" class="empty-big hidden">
       <div class="de-orb"></div>
@@ -691,7 +727,7 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
       </div>
       <div class="map-wrap" id="mapWrap">
         <canvas id="map"></canvas>
-        <div id="banner" class="banner"><div class="b-kick" id="bKick">Watching</div><div class="b-title" id="bTitle">Waiting for activity…</div><div class="b-sub" id="bSub"></div></div>
+        <div id="banner" class="banner"><div class="b-kick" id="bKick">Watching</div><div class="b-title" id="bTitle">Waiting for activity…</div><div class="b-sub" id="bSub"></div><div class="b-time" id="bTime"></div></div>
         <div class="legend">
           <span style="--c: var(--c-read)"><i></i>Read</span><span style="--c: var(--c-edit)"><i></i>Edit</span>
           <span style="--c: var(--c-cmd)"><i></i>Command</span><span style="--c: var(--c-search)"><i></i>Search</span>
@@ -729,6 +765,13 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
   </main>
 </div>
 
+<div class="modal-wrap" id="confirm" aria-hidden="true">
+  <div class="modal small" role="alertdialog" aria-modal="true" aria-labelledby="cfTitle">
+    <h2 id="cfTitle"></h2>
+    <p id="cfText"></p>
+    <div class="m-actions"><button class="btn" id="cfCancel">Cancel</button><button class="btn primary" id="cfOk">OK</button></div>
+  </div>
+</div>
 <div class="modal-wrap" id="modal" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
     <h2 id="mTitle">Start a Claude session</h2>
@@ -891,6 +934,7 @@ function stepCat(s) {
   if (s.kind === "tool") return toolCat(s.tool);
   if (s.wait) return "wait";
   if (s.reported) return { plan: "prompt", search: "search", read: "read", write: "edit", tool: "tool", done: "edit", error: "fail" }[s.reported.kind] || "tool";
+  if (s.said) return "prompt";
   return "tool";
 }
 const URGENT = new Set(["permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"]);
@@ -914,8 +958,9 @@ function sessionState(s) {
   if (s.ended) return "ended";
   if (s.needsYou && age < 3600) return "needs";
   // a step can be left "running" forever if a session is killed mid-command, so stale sessions stop counting as working
-  if ((s.running > 0 && age < 600) || (!s.stopped && age < 20)) return "working";
-  if (age < 86400) return "idle";
+  // Claude Code's own session file says busy while Claude thinks or writes, when no hook event arrives
+  if ((s.running > 0 && age < 600) || (!s.stopped && age < 20) || LIVE.get(s.id)?.status === "busy") return "working";
+  if (age < 86400 || LIVE.has(s.id)) return "idle";
   return "old";
 }
 const STATE_LABEL = { working: "Working now", needs: "Needs you", idle: "Idle", old: "Inactive", ended: "Closed" };
@@ -994,6 +1039,7 @@ function ingest(e) {
   if (ev === "SubagentStart") return out(mk({ kind: "marker", agentStart: true, text: `Sub-agent started: ${agent.agentType || "sub-agent"}` }), "single");
   if (ev === "SessionStart") {
     s.ended = false;
+    if (e.source_type === "follow") return out(mk({ kind: "marker", text: `Following this session from its saved conversation (it started before Orbit was on) in ${shortPath(e.cwd)}` }), "single");
     return out(mk({ kind: "marker", text: `Session ${e.source_type === "resume" ? "resumed" : e.source_type === "clear" ? "cleared" : "started"} in ${shortPath(e.cwd)}` }), "single");
   }
   if (ev === "SessionEnd") {
@@ -1007,6 +1053,10 @@ function ingest(e) {
     if (urgent) { s.needsYou = true; s.attnText = e.message || ""; }
     if (!urgent && type === "idle_prompt") return null;
     return out(mk({ kind: "note", wait: urgent, status: "note", title: urgent ? "Claude is waiting for you" : e.title || "Notice", text: e.message || "" }), "single");
+  }
+  if (ev === "AssistantText") {
+    // What Claude writes between steps, read from its saved conversation (hooks never report it)
+    return out(mk({ kind: "note", said: true, status: "note", title: "Claude says", text: e.text || "" }), "single");
   }
   if (ev === "ReportedStep") {
     const r = e.step || {};
@@ -1607,6 +1657,7 @@ function bannerFor(s, phase) {
   if (s.perm) return setBanner("Needs you", "Claude is asking permission", s.text, P.wait);
   if (s.wait) return setBanner("Needs you", "Claude is waiting for you", s.text, P.wait);
   if (s.reported) return setBanner("Claude says", s.title, s.reported.detail || "", P[stepCat(s)] || P.accent);
+  if (s.said) return setBanner("Claude says", (s.text.trim().split("\n")[0] || "").slice(0, 160), "", P.prompt);
   if (s.kind !== "tool") return;
   if (phase !== "start" && s.status === "failed") {
     const r = s.response;
@@ -1615,6 +1666,30 @@ function bannerFor(s, phase) {
   if (phase === "end") return;
   const [title, sub] = nowText(s);
   setBanner(s.agent ? s.agentType : phase === "start" ? "Now" : "Just did", title, sub, P[toolCat(s.tool)]);
+}
+// Between hook events the map would look frozen: a long command or a long think shows a running clock instead
+function tickBanner() {
+  let text = "";
+  if (current !== null && !RP.on && !String(current).startsWith("pending:")) {
+    const list = shownSteps(), now = Date.now() / 1000;
+    let running = null;
+    for (let i = list.length - 1, n = 0; i >= 0 && n < 200; i--, n++) {
+      const x = list[i], s = sessions.get(x.sid);
+      if (x.status === "running" && s && !s.stopped && !s.ended && (now - x.start < 3600 || LIVE.get(s.id)?.status === "busy")) { running = x; break; }
+    }
+    if (running) text = `${toolCat(running.tool) === "cmd" ? "Running" : "Working"} for ${dur(now - running.start)}`;
+    else {
+      const last = list[list.length - 1], s = last && sessions.get(last.sid);
+      if (last && s && !s.stopped && !s.ended && !s.needsYou && last.kind !== "marker" && !last.wait) {
+        const gap = now - (last.end || last.start);
+        if (gap >= 3 && (gap < 900 || LIVE.get(s.id)?.status === "busy")) {
+          text = `Thinking for ${dur(gap)}`;
+          if (!last.said && $("bKick").textContent !== "Thinking") setBanner("Thinking", "Claude is thinking…", last.kind === "tool" ? `Last step: ${label(last.tool)}` : "", PAL().prompt);
+        }
+      }
+    }
+  }
+  if ($("bTime").textContent !== text) $("bTime").textContent = text;
 }
 function initBanner() {
   const list = shownSteps(), P = PAL();
@@ -1945,10 +2020,15 @@ function makeCard(id) {
     <canvas class="spark"></canvas>
     <div class="card-stats"><div><b class="n-act">0</b><span>actions</span></div><div><b class="n-files">0</b><span>files changed</span></div><div><b class="n-fail">0</b><span>failed</span></div><div class="gold"><b class="n-cost">—</b><span>est. cost</span></div></div>
     <div class="card-last"></div>
-    <div class="card-cta"><em class="cta-t">Watch live</em> <span>→</span>${id === ALL ? "" : `<button class="card-chat" type="button" title="Read the full conversation">Chat</button>`}</div>`;
+    <div class="card-cta"><em class="cta-t">Watch live</em> <span>→</span>${id === ALL ? "" : `<button class="card-chat" type="button" title="Read the full conversation">Chat</button><button class="card-act hidden" data-act="move" type="button" title="Move into Orbit: close it where it runs and continue the same conversation in Orbit's workspace">Move</button><button class="card-act stop hidden" data-act="stop" type="button" title="Close this Claude session">Stop</button>`}</div>`;
   const go = () => { location.hash = el._target; };
-  el.addEventListener("click", (e) => { if (e.target.closest(".card-chat")) { location.hash = "#/chat/" + encodeURIComponent(id); return; } go(); });
-  el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  el.addEventListener("click", (e) => {
+    if (e.target.closest(".card-chat")) { location.hash = "#/chat/" + encodeURIComponent(id); return; }
+    const act = e.target.closest(".card-act");
+    if (act) { liveAction(id, act.dataset.act); return; }
+    go();
+  });
+  el.addEventListener("keydown", (e) => { if (e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go(); } });
   el.addEventListener("animationend", (e) => { if (e.target === el) el.classList.add("settled"); });
   el.addEventListener("pointermove", (e) => { const r = el.getBoundingClientRect(); el.style.setProperty("--mx", e.clientX - r.left + "px"); el.style.setProperty("--my", e.clientY - r.top + "px"); });
   return el;
@@ -1981,6 +2061,11 @@ function updateCard(el, id) {
   q(".n-cost").textContent = uc && uc.requests ? fmtUSD(uc.cost) : "—";
   q(".card-last").textContent = d.lastPrompt;
   q(".cta-t").textContent = d.ws ? "Open workspace" : "Watch live";
+  if (id !== ALL) {
+    const x = LIVE.get(id);
+    q(".card-act[data-act=move]").classList.toggle("hidden", !x || d.ws || inOrbit(x));
+    q(".card-act[data-act=stop]").classList.toggle("hidden", !x);
+  }
   cardSpark(q(".spark"), d.times, d.hue, d.state === "working");
 }
 function renderPicker() {
@@ -1999,12 +2084,105 @@ function renderPicker() {
   for (const [id, el] of cardEl) if (!order.includes(id)) { el.remove(); cardEl.delete(id); }
   const cur = [...wrap.children];
   if (cur.length !== order.length || cur.some((el, i) => el !== cardEl.get(order[i]))) order.forEach((id) => wrap.appendChild(cardEl.get(id)));
-  renderWsStrip();
+  renderWsStrip(); renderRunning();
 }
 $("showOld").addEventListener("change", renderPicker);
 let pickerQueued = false;
 const onPicker = () => document.body.dataset.view === "picker";
 function schedulePicker() { if (!onPicker() || pickerQueued) return; pickerQueued = true; setTimeout(() => { pickerQueued = false; if (onPicker()) renderPicker(); }, 300); }
+
+// ---------- running sessions: every Claude session open on this computer ----------
+const LIVE = new Map();   // Claude session id -> running session info (from Claude Code's own session files)
+const LIVE_STATE = { working: "Working", needs: "Needs you", idle: "Idle" };
+function setLive(list) {
+  LIVE.clear();
+  for (const x of list || []) LIVE.set(x.session_id, x);
+  renderRunning(); schedulePicker();
+}
+function liveState(x) {
+  const s = sessions.get(x.session_id), st = s ? sessionState(s) : null;
+  if (st === "needs") return "needs";
+  return x.status === "busy" || st === "working" ? "working" : "idle";
+}
+function liveTarget(x) {
+  const s = sessions.get(x.session_id), tid = x.term_id || s?.termId;
+  return tid && terms.get(tid)?.info.alive ? "#/term/" + tid : "#/s/" + encodeURIComponent(x.session_id);
+}
+const inOrbit = (x) => liveTarget(x).startsWith("#/term/");
+function renderRunning() {
+  const list = [...LIVE.values()].sort((a, b) => b.started - a.started);
+  $("running").classList.toggle("hidden", !list.length);
+  $("runCount").textContent = `${list.length} open on this computer`;
+  const html = list.map((x) => {
+    const st = liveState(x), orbit = inOrbit(x), uc = U.all?.sessions?.[x.session_id];
+    const where = orbit ? "Orbit workspace" : x.hooks ? "Terminal" : "Terminal · read from its saved conversation";
+    return `<div class="run-row ${st}" data-sid="${esc(x.session_id)}" tabindex="0" role="button">
+      <div class="run-name"><i></i><div><b>${esc(base(x.cwd) || x.name || x.session_id.slice(0, 8))}</b><small>${esc(tilde(x.cwd))} · ${esc(x.name || x.session_id.slice(0, 8))}</small></div></div>
+      <div class="run-where">${esc(where)}</div>
+      <div class="run-state">${LIVE_STATE[st]}</div>
+      <div class="run-cost">${uc && uc.requests ? fmtUSD(uc.cost) : "—"}</div>
+      <div class="run-acts">${orbit ? "" : `<button class="card-act" data-act="move" type="button" title="Close it where it runs and continue the same conversation in Orbit's workspace">Move into Orbit</button>`}<button class="card-act stop" data-act="stop" type="button" title="Close this Claude session">Stop</button></div>
+    </div>`;
+  }).join("");
+  const box = $("runList");
+  if (box._html !== html) { box._html = html; box.innerHTML = html; }
+}
+function watchLive(x) {
+  const target = liveTarget(x);
+  if (target.startsWith("#/s/") && !sessions.has(x.session_id)) { toast("Nothing recorded for this session yet. It shows here as soon as Claude does something."); return; }
+  location.hash = target;
+}
+$("runList").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-sid]"), x = row && LIVE.get(row.dataset.sid);
+  if (!x) return;
+  const act = e.target.closest("[data-act]");
+  if (act) liveAction(x.session_id, act.dataset.act); else watchLive(x);
+});
+$("runList").addEventListener("keydown", (e) => {
+  const x = e.target.matches?.("[data-sid]") && LIVE.get(e.target.dataset.sid);
+  if (x && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); watchLive(x); }
+});
+async function postLive(sid, act, body) {
+  try {
+    const r = await fetch(`/api/live/${encodeURIComponent(sid)}/${act}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cols: 110, rows: 32, ...body }) });
+    return { ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) };
+  } catch { return { ok: false, status: 0, j: { error: "Could not reach the Orbit server" } }; }
+}
+async function liveAction(sid, act) {
+  const x = LIVE.get(sid);
+  if (!x) { toast("That session is no longer running", "bad"); return; }
+  const name = base(x.cwd) || x.name || "this session", orbit = inOrbit(x);
+  const ok = act === "stop"
+    ? await askConfirm(`Stop ${name}?`, `Claude closes ${orbit ? "in its Orbit workspace tab" : "in the terminal it runs in, as if you closed that window"}. The conversation stays saved, so you can continue it later from Chats.`, "Stop session")
+    : await askConfirm(`Move ${name} into Orbit?`, "Claude closes in the terminal it runs in now, then the same conversation continues here in Orbit's workspace, with the live map beside it.", "Move into Orbit");
+  if (!ok) return;
+  if (act === "move") toast("Closing it in its terminal…");
+  let r = await postLive(sid, act, {});
+  if (r.status === 409 && r.j.busy) {
+    if (!(await askConfirm("Claude is working in that session", "Moving it now stops what Claude is doing in the middle of a step. Wait until it finishes, or move it anyway.", "Move anyway"))) return;
+    r = await postLive(sid, act, { force: true });
+  }
+  if (!r.ok) { toast(r.j.error || "That did not work", "bad"); return; }
+  if (act === "stop") { toast(`${name} stopped`); return; }
+  upsertTermInfo(r.j);
+  location.hash = "#/term/" + r.j.id;
+}
+let cfResolve = null;
+const confirmOpen = () => $("confirm").classList.contains("open");
+function askConfirm(title, text, okLabel) {
+  $("cfTitle").textContent = title; $("cfText").textContent = text; $("cfOk").textContent = okLabel;
+  $("confirm").classList.add("open"); $("confirm").setAttribute("aria-hidden", "false");
+  $("cfOk").focus();
+  return new Promise((res) => { cfResolve = res; });
+}
+function closeConfirm(v) {
+  $("confirm").classList.remove("open"); $("confirm").setAttribute("aria-hidden", "true");
+  const r = cfResolve; cfResolve = null;
+  if (r) r(v);
+}
+$("cfOk").onclick = () => closeConfirm(true);
+$("cfCancel").onclick = () => closeConfirm(false);
+$("confirm").addEventListener("click", (e) => { if (e.target === $("confirm")) closeConfirm(false); });
 
 // ---------- views and routing ----------
 function setCurrent(id) {
@@ -2073,6 +2251,7 @@ $("backBtn").onclick = () => { location.hash = ""; };
 addEventListener("keydown", (e) => {
   const typing = e.target.closest?.(".xterm, input, textarea, select");
   if (e.key === "Escape") {
+    if (confirmOpen()) { closeConfirm(false); return; }
     if (modalOpen()) { closeModal(); return; }
     if (focusOpen()) { closeFocus(); return; }
     if (!$("reportMenu").classList.contains("hidden")) { $("reportMenu").classList.add("hidden"); return; }
@@ -3126,34 +3305,58 @@ function frame(t) {
   }
 }
 setInterval(() => {
-  if (onPicker()) renderPicker(); else if (current !== null) { updateStats(); updateRate(); }
+  if (onPicker()) renderPicker(); else if (current !== null) { updateStats(); updateRate(); tickBanner(); }
   if (terms.size) renderTabs();
   updateAttn();
 }, 1000);
 
 async function start() {
-  let ready = false, maxId = 0, hadError = false;
+  let ready = false, maxId = 0, boot = null, es = null, lastBeat = Date.now(), filling = false;
   const buffer = [];
-  const es = new EventSource("/stream");
-  es.onopen = () => {
-    if (hadError) { location.reload(); return; }   // server restarted: reload to resync
-    $("dot").classList.add("live"); $("conn").textContent = "Live";
-  };
-  es.onerror = () => { hadError = true; $("dot").classList.remove("live"); $("conn").textContent = "Disconnected — reconnecting…"; };
-  es.onmessage = (m) => {
-    const e = JSON.parse(m.data);
-    if (e.kind === "terminal") { if (ready) upsertTermInfo(e.terminal); return; }
-    if (e.kind === "status") { U.status[e.session_id] = e.status; renderAllRings(); return; }
-    if (!ready) { buffer.push(e); return; }
-    if (e.id <= maxId) return;
-    maxId = e.id; onEvent(e);
-  };
+  const safe = (fn, e) => { try { fn(e); } catch (err) { console.warn("event skipped:", err); } };   // one bad event must never stop the feed
+  // Fetches every event the live stream missed (a dropped connection, a sleeping laptop, a skipped id)
+  async function catchUp() {
+    if (!ready || filling) return;
+    filling = true;
+    try {
+      for (const e of await getJSON(`/events?after=${maxId}`)) if (e.id > maxId) { maxId = e.id; safe(onEvent, e); }
+    } catch {} finally { filling = false; }
+  }
+  function connect() {
+    if (es) es.close();
+    lastBeat = Date.now();
+    es = new EventSource("/stream");
+    es.onerror = () => { $("dot").classList.remove("live"); $("conn").textContent = "Disconnected — reconnecting…"; };
+    es.onmessage = (m) => {
+      lastBeat = Date.now();
+      let e;
+      try { e = JSON.parse(m.data); } catch { return; }
+      if (e.kind === "hello" || e.kind === "ping") {
+        if (boot && e.boot !== boot) { location.reload(); return; }   // the server restarted: reload to resync
+        boot = e.boot;
+        $("dot").classList.add("live"); $("conn").textContent = "Live";
+        if (e.last > maxId) catchUp();
+        return;
+      }
+      if (e.kind === "terminal") { if (ready) safe(upsertTermInfo, e.terminal); return; }
+      if (e.kind === "status") { U.status[e.session_id] = e.status; safe(renderAllRings); return; }
+      if (e.kind === "live") { safe(setLive, e.sessions); return; }
+      if (!ready) { buffer.push(e); return; }
+      if (e.id <= maxId) return;
+      if (e.id > maxId + 1) { catchUp(); return; }   // something was missed: fetch it all, in order
+      maxId = e.id; safe(onEvent, e);
+    };
+  }
+  connect();
+  // The server sends a heartbeat every few seconds; silence means the connection died without saying so
+  setInterval(() => { if (Date.now() - lastBeat > 20000) { $("dot").classList.remove("live"); $("conn").textContent = "Reconnecting…"; connect(); } }, 5000);
   try {
     const hist = await (await fetch("/events")).json();
-    for (const e of hist) { ingest(e); maxId = Math.max(maxId, e.id || 0); }
+    for (const e of hist) { safe(ingest, e); maxId = Math.max(maxId, e.id || 0); }
   } catch {}
-  for (const e of buffer) if (e.id > maxId) { maxId = e.id; ingest(e); }
+  for (const e of buffer) if (e.id > maxId) { maxId = e.id; safe(ingest, e); }
   await loadTerms();
+  try { setLive((await getJSON("/api/live")).sessions); } catch {}
   try { U.status = await getJSON("/api/status"); } catch {}
   refreshAllUsage(); renderAllRings();
   ready = true;
