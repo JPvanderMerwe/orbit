@@ -30,7 +30,7 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server  # noqa: E402
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 STATUS_SCRIPT = Path(__file__).resolve().parent / "statusline.py"
 NEXT_FILE = DATA_DIR / "statusline-next.json"

@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.1.0 — 2026-10-25
+
+Orbit now keeps up with everything Claude does, not only its tool steps.
+
+### New
+- **What Claude says.** The text Claude writes between steps appears in the timeline and banner as it is written, in the right order. Sub-agents' text shows too, labelled with the sub-agent's type.
+- **Live command output.** A long command shows its output as it prints, in the details panel and the full-screen view, with the latest line in the banner.
+- **Never looks frozen.** The banner shows a running clock while a command runs ("Running for 1:23") or while Claude thinks ("Thinking for 0:45").
+- **Running now.** The start screen lists every Claude session open on the computer, with Move into Orbit (continue it in Orbit's workspace) and Stop. Sessions started before Orbit was on are followed from their saved conversation.
+
+### Fixed
+- The live connection notices when it has silently died (after sleep or a network drop), reconnects by itself and fetches anything it missed, without reloading the page.
+- One bad event can no longer stop the live feed.
+- Events are no longer lost when the Orbit server is briefly busy (the hook now waits up to 3 seconds instead of 1).
+- A session counts as working whenever Claude Code reports it busy, even during a long think.
+
 ## 3.0.0 — 2026-10-24
 
 Activity Viewer is now **Orbit**.

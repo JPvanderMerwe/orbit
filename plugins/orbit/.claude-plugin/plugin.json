@@ -1,6 +1,6 @@
 {
   "name": "orbit",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Orbit: see everything Claude Code does. A live, animated map of every file it reads, command it runs and change it makes, with a built-in workspace, session replay, token and cost tracking, and shareable reports.",
   "author": { "name": "JPvanderMerwe", "url": "https://github.com/JPvanderMerwe" },
   "license": "MIT",

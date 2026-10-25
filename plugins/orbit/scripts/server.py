@@ -43,7 +43,7 @@ try:
 except ImportError:  # Windows
     HAS_PTY = False
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 HOST = "127.0.0.1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -795,10 +795,69 @@ def last_turn_offset(path, size):
         window *= 4
 
 
+def read_new(path, offset):
+    """The complete rows added to a JSONL file since offset, and the new offset."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return [], offset
+    if size < offset:  # rewritten from the start
+        offset = 0
+    if size == offset:
+        return [], offset
+    with open(path, "rb") as fh:
+        fh.seek(offset)
+        data = fh.read(min(size - offset, 8 * 1024 * 1024))
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset
+    return list(_lines(data[:end], False)), offset + end + 1
+
+
+def agent_events(sid, cwd, f, register_only=False):
+    """What sub-agents write between their steps, from <transcript>/subagents/agent-<id>.jsonl.
+
+    Files already there when following starts are old, so they are read from their end."""
+    out = []
+    try:
+        files = list((Path(f["path"]).with_suffix("") / "subagents").glob("agent-*.jsonl"))
+    except OSError:
+        return out
+    for p in files:
+        a = f["agents"].get(str(p))
+        if a is None:
+            try:
+                start = p.stat().st_size if register_only else 0
+            except OSError:
+                continue
+            a = f["agents"][str(p)] = {"offset": start, "id": p.stem[len("agent-"):], "type": ""}
+        if not a["type"]:
+            try:
+                meta = json.loads(p.with_name(p.stem + ".meta.json").read_text())
+                a["type"] = str(meta.get("agentType") or "") if isinstance(meta, dict) else ""
+            except (OSError, ValueError):
+                pass
+        if register_only:
+            continue
+        rows, a["offset"] = read_new(str(p), a["offset"])
+        for row in rows:
+            msg = row.get("message") if isinstance(row.get("message"), dict) else None
+            if row.get("type") != "assistant" or not msg:
+                continue
+            t = iso_time(row["timestamp"]) if row.get("timestamp") else time.time()
+            for b in msg.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
+                    out.append({"session_id": sid, "cwd": cwd, "transcript_path": f["path"], "source": "transcript",
+                                "hook_event_name": "AssistantText", "agent_id": a["id"], "agent_type": a["type"] or "sub-agent",
+                                "text": clip(b["text"], 20000), "received_at": t})
+    return out
+
+
 def follow(sid, cwd, path=None):
-    """Turn whatever is new in a session's transcript into events. Called by the session watcher and,
-    for sessions that send hook events, just before each hook event is added, so Claude's text lands
-    in the right order between steps."""
+    """Turn whatever is new in a session's transcript (and its sub-agents' transcripts) into events.
+
+    Called by the session watcher and, for sessions that send hook events, just before each hook event
+    is added, so the text Claude writes lands in the right order between steps."""
     with follow_lock:
         hooked_now = sid in hooked
         f = followed.get(sid)
@@ -818,24 +877,11 @@ def follow(sid, cwd, path=None):
                     offset = last_turn_offset(found, size) if size else 0
                     add_event({"session_id": sid, "cwd": cwd, "transcript_path": str(found), "source": "transcript",
                                "hook_event_name": "SessionStart", "source_type": "follow"})
-            f = followed[sid] = {"offset": offset, "path": str(found), "tools": {}, "cwd": cwd}
-        try:
-            size = os.path.getsize(f["path"])
-        except OSError:
-            return
-        if size < f["offset"]:
-            f["offset"] = 0
-        if size == f["offset"]:
-            return
-        with open(f["path"], "rb") as fh:
-            fh.seek(f["offset"])
-            data = fh.read(min(size - f["offset"], 8 * 1024 * 1024))
-        end = data.rfind(b"\n")
-        if end < 0:
-            return
-        f["offset"] += end + 1
-        rows = [r for r in _lines(data[:end], False)]
-        for event in transcript_events(sid, cwd or f["cwd"], f["path"], rows, f["tools"], hooked_now):
+            f = followed[sid] = {"offset": offset, "path": str(found), "tools": {}, "cwd": cwd, "agents": {}}
+            agent_events(sid, cwd, f, register_only=True)
+        cwd = cwd or f["cwd"]
+        rows, f["offset"] = read_new(f["path"], f["offset"])
+        for event in transcript_events(sid, cwd, f["path"], rows, f["tools"], hooked_now) + agent_events(sid, cwd, f):
             add_event(event)
         saved_offsets[sid] = f["offset"]
 
@@ -882,6 +928,86 @@ def watch_live():
         except Exception as e:  # noqa: BLE001 - keep watching whatever one bad file does
             print(f"Orbit: session watcher: {e}", file=sys.stderr, flush=True)
         time.sleep(LIVE_EVERY)
+
+
+# ---------------------------------------------------------------- live command output
+# While a command runs, Claude Code writes its output to a file in the session's "tasks" folder, next to
+# the scratchpad folder that hook events name. Orbit tails that file so a long command shows its output
+# as it prints, not only when it finishes. If the folder is not there, commands simply show at the end.
+OUTPUT_TAIL = 16 * 1024
+OUTPUT_EVERY = 0.5
+running_cmds = {}     # tool use id -> {"sid", "tasks", "before", "start", "file", "size"}
+outputs = {}          # tool use id -> {"text", "size"}: the latest output of a running command
+output_lock = threading.Lock()
+
+
+def note_command(event):
+    ev, sid, tid = event.get("hook_event_name"), event.get("session_id"), event.get("tool_use_id")
+    with output_lock:
+        if ev == "PreToolUse" and event.get("tool_name") == "Bash" and isinstance(tid, str):
+            inp = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+            sp = event.get("scratchpad_dir")
+            if inp.get("run_in_background") or not isinstance(sp, str) or not os.path.isabs(sp):
+                return
+            tasks = Path(sp).parent / "tasks"
+            try:
+                before = {p.name for p in tasks.glob("*.output")}
+            except OSError:
+                before = set()
+            running_cmds[tid] = {"sid": sid, "tasks": tasks, "before": before, "start": time.time(), "file": None, "size": -1}
+        elif ev in ("PostToolUse", "PostToolUseFailure") and isinstance(tid, str):
+            running_cmds.pop(tid, None)
+            outputs.pop(tid, None)
+        elif ev in ("Stop", "SessionEnd"):
+            for t in [t for t, c in running_cmds.items() if c["sid"] == sid]:
+                running_cmds.pop(t, None)
+                outputs.pop(t, None)
+
+
+def watch_output():
+    while True:
+        try:
+            with output_lock:
+                items = sorted(running_cmds.items(), key=lambda x: x[1]["start"])
+                claimed = {c["file"] for _, c in items if c["file"]}
+            for tid, c in items:
+                if time.time() - c["start"] > 6 * 3600:  # a command whose end was never reported
+                    with output_lock:
+                        running_cmds.pop(tid, None)
+                        outputs.pop(tid, None)
+                    continue
+                if not c["file"]:
+                    # The command's file is the oldest one that appeared in the folder after it started
+                    try:
+                        fresh = [p for p in c["tasks"].glob("*.output") if p.name not in c["before"] and str(p) not in claimed]
+                        fresh.sort(key=lambda p: p.stat().st_mtime)
+                    except OSError:
+                        fresh = []
+                    if not fresh:
+                        continue
+                    c["file"] = str(fresh[0])
+                    claimed.add(c["file"])
+                try:
+                    size = os.path.getsize(c["file"])
+                except OSError:
+                    continue
+                if size == c["size"]:
+                    continue
+                c["size"] = size
+                with open(c["file"], "rb") as f:
+                    f.seek(max(0, size - OUTPUT_TAIL))
+                    data = f.read(OUTPUT_TAIL)
+                text = data.decode("utf-8", "replace")
+                if size > OUTPUT_TAIL:
+                    text = "…\n" + text.split("\n", 1)[-1]  # drop the cut-off first line
+                with output_lock:
+                    if tid not in running_cmds:
+                        continue
+                    outputs[tid] = {"text": text, "size": size}
+                broadcast({"id": 0, "kind": "output", "session_id": c["sid"], "tool_use_id": tid, "text": text, "size": size})
+        except Exception as e:  # noqa: BLE001 - keep watching whatever one file does
+            print(f"Orbit: output watcher: {e}", file=sys.stderr, flush=True)
+        time.sleep(OUTPUT_EVERY)
 
 
 def wait_until_closed(info, timeout=8):
@@ -1081,6 +1207,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if chat else 404, chat or {"error": "conversation not found"})
         elif path == "/api/status":
             self._json(200, plan_status)
+        elif path == "/api/output":
+            with output_lock:
+                self._json(200, outputs.get(parse_qs(url.query).get("tool", [""])[0]) or {})
         elif path == "/api/live":
             with live_lock:
                 self._json(200, {"sessions": list(live.values())})
@@ -1108,6 +1237,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/event":
             note_hooked(body)
+            if body.get("source") == "claude-code":
+                note_command(body)
             sid = body.get("session_id")
             if body.get("source") == "claude-code" and isinstance(sid, str) and SESSION_ID_OK.match(sid):
                 try:
@@ -1337,6 +1468,7 @@ def main():
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     threading.Thread(target=watch_live, daemon=True).start()
+    threading.Thread(target=watch_output, daemon=True).start()
     PID_FILE.write_text(str(os.getpid()))
     print(f"Orbit {VERSION} running at http://{HOST}:{PORT}", flush=True)
     try:

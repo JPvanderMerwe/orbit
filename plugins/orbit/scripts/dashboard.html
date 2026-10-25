@@ -934,7 +934,7 @@ function stepCat(s) {
   if (s.kind === "tool") return toolCat(s.tool);
   if (s.wait) return "wait";
   if (s.reported) return { plan: "prompt", search: "search", read: "read", write: "edit", tool: "tool", done: "edit", error: "fail" }[s.reported.kind] || "tool";
-  if (s.said) return "prompt";
+  if (s.said) return s.agent ? "agent" : "prompt";
   return "tool";
 }
 const URGENT = new Set(["permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"]);
@@ -1000,7 +1000,7 @@ function ingest(e) {
   const out = (step, phase, changed) => ({ step, phase, changed, relink });
   if (["PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd", "SessionStart"].includes(ev)) s.needsYou = false;
   if (ev === "PreToolUse") {
-    const step = mk({ kind: "tool", status: "running", tool: e.tool_name, input: e.tool_input, cwd: e.cwd });
+    const step = mk({ kind: "tool", status: "running", tool: e.tool_name, input: e.tool_input, cwd: e.cwd, tool_use_id: e.tool_use_id });
     byKey.set(pairKey(e), step);
     s.running++; s.stopped = false; s.ended = false; tally(s, step, t);
     return out(step, "start");
@@ -1657,7 +1657,7 @@ function bannerFor(s, phase) {
   if (s.perm) return setBanner("Needs you", "Claude is asking permission", s.text, P.wait);
   if (s.wait) return setBanner("Needs you", "Claude is waiting for you", s.text, P.wait);
   if (s.reported) return setBanner("Claude says", s.title, s.reported.detail || "", P[stepCat(s)] || P.accent);
-  if (s.said) return setBanner("Claude says", (s.text.trim().split("\n")[0] || "").slice(0, 160), "", P.prompt);
+  if (s.said) return setBanner(s.agent ? `${s.agentType} says` : "Claude says", (s.text.trim().split("\n")[0] || "").slice(0, 160), "", s.agent ? P.agent : P.prompt);
   if (s.kind !== "tool") return;
   if (phase !== "start" && s.status === "failed") {
     const r = s.response;
@@ -1677,7 +1677,11 @@ function tickBanner() {
       const x = list[i], s = sessions.get(x.sid);
       if (x.status === "running" && s && !s.stopped && !s.ended && (now - x.start < 3600 || LIVE.get(s.id)?.status === "busy")) { running = x; break; }
     }
-    if (running) text = `${toolCat(running.tool) === "cmd" ? "Running" : "Working"} for ${dur(now - running.start)}`;
+    if (running) {
+      text = `${toolCat(running.tool) === "cmd" ? "Running" : "Working"} for ${dur(now - running.start)}`;
+      const lastLine = (running.liveOut || "").trimEnd().split("\n").pop().trim();
+      if (lastLine) text += ` · ${lastLine.length > 80 ? lastLine.slice(0, 80) + "…" : lastLine}`;
+    }
     else {
       const last = list[list.length - 1], s = last && sessions.get(last.sid);
       if (last && s && !s.stopped && !s.ended && !s.needsYou && last.kind !== "marker" && !last.wait) {
@@ -2456,10 +2460,24 @@ function termView(s, { animate = false, jobs = [], budget = 3 } = {}) {
   const setStatus = () => {
     if (s.status === "running") {
       st.className = "tw-st run";
-      q(".tw-out").innerHTML = `<span class="tw-wait">running… the output appears here when the command finishes</span>`;
+      q(".tw-out").innerHTML = `<span class="tw-wait">running… output appears here as the command prints it</span>`;
+      // Output arrives on the step while the command runs (see "output" events); show it as it grows
+      let shown = null;
+      const showOut = () => {
+        if (s.liveOut == null || s.liveOut === shown) return;
+        const body = q(".tw-body"), atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+        shown = s.liveOut; q(".tw-out").textContent = shown;
+        if (atEnd) body.scrollTop = body.scrollHeight;
+      };
+      if (s.liveOut == null && !s.outAsked && s.tool_use_id) {
+        s.outAsked = true;
+        getJSON("/api/output?tool=" + encodeURIComponent(s.tool_use_id)).then((r) => { if (r.text != null && s.liveOut == null) s.liveOut = r.text; }).catch(() => {});
+      }
+      showOut();
       const iv = setInterval(() => {
         if (!w.isConnected || s.status !== "running") { clearInterval(iv); return; }
         st.textContent = `running ${(Date.now() / 1000 - s.start).toFixed(1)}s`;
+        showOut();
       }, 100);
       st.textContent = "running";
     } else if (s.status === "failed") { st.className = "tw-st bad"; st.textContent = s.noResult ? "✗ no result" : "✗ failed"; }
@@ -3341,6 +3359,7 @@ async function start() {
       if (e.kind === "terminal") { if (ready) safe(upsertTermInfo, e.terminal); return; }
       if (e.kind === "status") { U.status[e.session_id] = e.status; safe(renderAllRings); return; }
       if (e.kind === "live") { safe(setLive, e.sessions); return; }
+      if (e.kind === "output") { const st = byKey.get(e.tool_use_id); if (st && st.status === "running") st.liveOut = e.text; return; }
       if (!ready) { buffer.push(e); return; }
       if (e.id <= maxId) return;
       if (e.id > maxId + 1) { catchUp(); return; }   // something was missed: fetch it all, in order
