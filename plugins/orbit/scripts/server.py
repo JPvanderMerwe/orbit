@@ -43,7 +43,7 @@ try:
 except ImportError:  # Windows
     HAS_PTY = False
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 HOST = "127.0.0.1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -720,6 +720,22 @@ def scan_live():
     return found
 
 
+def background_done(row):
+    """The details of a "background command finished" notice Claude Code adds to the conversation, or None."""
+    if row.get("type") != "user" or (row.get("origin") or {}).get("kind") != "task-notification":
+        return None
+    content = (row.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
+    if not isinstance(content, str):
+        return None
+    tag = lambda name: (re.search(rf"<{name}>(.*?)</{name}>", content, re.S) or [None, ""])[1].strip()
+    if not tag("tool-use-id"):
+        return None
+    return {"tool_use_id": tag("tool-use-id"), "task_id": tag("task-id"), "status": tag("status") or "completed",
+            "summary": clip(tag("summary"), 600), "output_file": tag("output-file")}
+
+
 def transcript_events(sid, cwd, path, rows, tools, hooked=False):
     """Hook-style events for transcript rows, so the dashboard treats a followed session like any other.
 
@@ -742,6 +758,10 @@ def transcript_events(sid, cwd, path, rows, tools, hooked=False):
             for b in msg.get("content") or []:
                 if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
                     out.append({**base, "hook_event_name": "AssistantText", "text": clip(b["text"], 20000), "received_at": t})
+        done = background_done(row)
+        if done:
+            out.append({**base, "hook_event_name": "BackgroundDone", **done, "received_at": t})
+            continue
         if hooked:
             continue
         if row.get("type") == "user":
@@ -882,6 +902,8 @@ def follow(sid, cwd, path=None):
         cwd = cwd or f["cwd"]
         rows, f["offset"] = read_new(f["path"], f["offset"])
         for event in transcript_events(sid, cwd, f["path"], rows, f["tools"], hooked_now) + agent_events(sid, cwd, f):
+            if event["hook_event_name"] == "BackgroundDone":
+                finish_background(event)
             add_event(event)
         saved_offsets[sid] = f["offset"]
 
@@ -958,10 +980,45 @@ def note_command(event):
         elif ev in ("PostToolUse", "PostToolUseFailure") and isinstance(tid, str):
             running_cmds.pop(tid, None)
             outputs.pop(tid, None)
+            # A command sent to the background keeps writing to tasks/<id>.output until Claude Code reports it done
+            res = event.get("tool_response") if isinstance(event.get("tool_response"), dict) else {}
+            task, sp = res.get("backgroundTaskId"), event.get("scratchpad_dir")
+            if isinstance(task, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task) and isinstance(sp, str) and os.path.isabs(sp):
+                running_cmds[tid] = {"sid": sid, "tasks": None, "before": set(), "start": time.time(),
+                                     "file": str(Path(sp).parent / "tasks" / f"{task}.output"), "size": -1, "bg": task}
         elif ev in ("Stop", "SessionEnd"):
-            for t in [t for t, c in running_cmds.items() if c["sid"] == sid]:
+            # Background commands outlive the turn that started them, not the session
+            for t in [t for t, c in running_cmds.items() if c["sid"] == sid and (ev == "SessionEnd" or not c.get("bg"))]:
                 running_cmds.pop(t, None)
                 outputs.pop(t, None)
+
+
+def output_tail(path):
+    """The last part of a command's output file, starting at a whole line."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - OUTPUT_TAIL))
+            data = f.read(OUTPUT_TAIL)
+    except OSError:
+        return None, 0
+    text = data.decode("utf-8", "replace")
+    if size > OUTPUT_TAIL:
+        text = "…\n" + text.split("\n", 1)[-1]  # drop the cut-off first line
+    return text, size
+
+
+def finish_background(event):
+    """A background command finished: stop following it and keep its final output with the event."""
+    tid, path = event.get("tool_use_id"), event.get("output_file")
+    with output_lock:
+        c = running_cmds.pop(tid, None)
+        outputs.pop(tid, None)
+    if c and not path:
+        path = c["file"]
+    if isinstance(path, str) and os.path.isabs(path) and path.endswith(".output"):
+        event["output"] = output_tail(path)[0]
+    event.pop("output_file", None)
 
 
 def watch_output():
@@ -994,12 +1051,9 @@ def watch_output():
                 if size == c["size"]:
                     continue
                 c["size"] = size
-                with open(c["file"], "rb") as f:
-                    f.seek(max(0, size - OUTPUT_TAIL))
-                    data = f.read(OUTPUT_TAIL)
-                text = data.decode("utf-8", "replace")
-                if size > OUTPUT_TAIL:
-                    text = "…\n" + text.split("\n", 1)[-1]  # drop the cut-off first line
+                text, size = output_tail(c["file"])
+                if text is None:
+                    continue
                 with output_lock:
                     if tid not in running_cmds:
                         continue

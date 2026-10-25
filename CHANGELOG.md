@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.2.0 — 2026-10-25
+
+### New
+- **Background commands live.** A command Claude sends to the background shows its output as it prints, with "running in background" and a clock, even after Claude's turn ends. When it finishes, the timeline says so, with Claude Code's summary and the final output.
+
+### Fixed
+- After an update, a Claude session that was already open could start the old Orbit again. Orbit now always starts the newest installed version, and a new Claude session (or `/orbit`) replaces an older Orbit that is still running, unless workspace terminals are open in it.
+- "1 actions" and "1 files changed" now read "1 action" and "1 file changed".
+- The "CLAUDE · WORKING" label no longer sits on top of the Terminal node on a short map.
+
 ## 3.1.0 — 2026-10-25
 
 Orbit now keeps up with everything Claude does, not only its tool steps.

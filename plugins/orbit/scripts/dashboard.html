@@ -862,6 +862,7 @@ function ago(ts) {
   if (d < 5) return "just now"; if (d < 60) return Math.floor(d) + "s ago"; if (d < 3600) return Math.floor(d / 60) + "m ago";
   if (d < 86400) return Math.floor(d / 3600) + "h ago"; return Math.floor(d / 86400) + "d ago";
 }
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 function dur(sec) {
   sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}:${String(s).padStart(2, "0")}`;
@@ -944,6 +945,7 @@ const sessions = new Map();
 const allSteps = [];
 const allTimes = [];
 const byKey = new Map();
+const bgSteps = new Map();   // tool use id -> step of a command still running in the background
 const termSid = new Map();   // workspace terminal id -> Claude session id
 let current = null;          // null = picker, ALL, a session id, or "pending:<terminal id>"
 let selected = null;
@@ -1013,6 +1015,10 @@ function ingest(e) {
     step.status = responseFailed(e) ? "failed" : "ok";
     step.response = e.tool_response ?? e.error;
     step.end = t;
+    step.tool_use_id = step.tool_use_id || e.tool_use_id;
+    // A command sent to the background keeps running (and printing) until Claude Code reports it done
+    const bgId = step.tool === "Bash" && step.status === "ok" && step.response?.backgroundTaskId;
+    if (bgId) { step.bg = { id: bgId, status: "running" }; bgSteps.set(e.tool_use_id, step); }
     if (step.status === "failed") s.fails++;
     return out(step, phase);
   }
@@ -1053,6 +1059,18 @@ function ingest(e) {
     if (urgent) { s.needsYou = true; s.attnText = e.message || ""; }
     if (!urgent && type === "idle_prompt") return null;
     return out(mk({ kind: "note", wait: urgent, status: "note", title: urgent ? "Claude is waiting for you" : e.title || "Notice", text: e.message || "" }), "single");
+  }
+  if (ev === "BackgroundDone") {
+    const bgStep = bgSteps.get(e.tool_use_id), changed = [];
+    if (bgStep) {
+      bgSteps.delete(e.tool_use_id);
+      bgStep.bg.status = e.status; bgStep.bg.end = t;
+      if (e.output != null) bgStep.liveOut = e.output;
+      changed.push(bgStep);
+    }
+    const ok = e.status === "completed";
+    return out(mk({ kind: "note", status: ok ? "note" : "failed", title: ok ? "Background command finished" : `Background command ${e.status}`,
+      text: e.summary || "", output: e.output, tool: "Bash", input: bgStep?.input }), "single", changed);
   }
   if (ev === "AssistantText") {
     // What Claude writes between steps, read from its saved conversation (hooks never report it)
@@ -1355,7 +1373,11 @@ function drawMap(t, dt) {
   if (c.flash > 0) { ctx.fillStyle = rgba("#ffffff", c.flash * 0.6); ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, TAU); ctx.fill(); }
   ctx.font = "700 10px " + SANS; ctx.textAlign = "center"; ctx.fillStyle = P.muted;
   if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
-  ctx.fillText(c.waiting ? "CLAUDE · NEEDS YOU" : anyActive ? "CLAUDE · WORKING" : "CLAUDE", c.x, c.y + r + 42);
+  // below the core unless a node sits there (the Terminal hub does on a short map); then above it
+  const blocked = (y) => [...G.nodes.values()].some((n) => Math.abs(n.x - c.x) < 80 && Math.abs(n.y - y) < nodeRadius(n) + 14);
+  let labelY = c.y + r + 42;
+  if (blocked(labelY) && !blocked(c.y - r - 36)) labelY = c.y - r - 36;
+  ctx.fillText(c.waiting ? "CLAUDE · NEEDS YOU" : anyActive ? "CLAUDE · WORKING" : "CLAUDE", c.x, labelY);
   if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   // labels: busiest first; a label that would overlap one already drawn moves above/below or waits for hover
   ctx.font = "500 11px " + SANS; ctx.lineJoin = "round";
@@ -1431,7 +1453,7 @@ function updateRate() {
   const list = shownSteps(), cutoff = replayNow() - 60;
   let n = 0;
   for (let i = list.length - 1; i >= 0 && list[i].start > cutoff; i--) if (list[i].kind === "tool") n++;
-  $("rate").innerHTML = `<b>${n}</b> actions / min`;
+  $("rate").innerHTML = `<b>${n}</b> action${n === 1 ? "" : "s"} / min`;
 }
 
 // ---------- picker background ----------
@@ -1480,10 +1502,10 @@ function makeEl(s) {
 function updateEl(el) {
   const s = el._step;
   if (el.classList.contains("tl-item")) {
-    const st = s.status || "note";
+    const st = s.bg ? (s.bg.status === "running" ? "running" : s.bg.status === "completed" ? "ok" : "failed") : s.status || "note";
     for (const c of ["running", "ok", "failed", "note"]) el.classList.toggle(c, c === st);
     el.dataset.st = st;
-    el.querySelector(".tl-time").textContent = fmtTime(s.start) + (s.end ? ` · ${(s.end - s.start).toFixed(1)}s` : "");
+    el.querySelector(".tl-time").textContent = fmtTime(s.start) + (s.bg ? (s.bg.status === "running" ? " · running" : s.bg.end ? ` · ${dur(s.bg.end - s.start)}` : "") : s.end ? ` · ${(s.end - s.start).toFixed(1)}s` : "");
   }
   el.classList.toggle("selected", s === selected);
 }
@@ -1574,6 +1596,11 @@ function responseText(r) {
 function head(cat, title, chips) {
   return `<div class="d-head cat-${cat}"><div class="d-icon">${svg(cat)}</div><div><div class="d-title">${esc(title)}</div><div class="d-chips">${chips.join("")}</div></div></div>`;
 }
+function stepStatusChip(s) {
+  if (s.bg) return s.bg.status === "running" ? `<span class="chip running">In background…</span>` : s.bg.status === "completed" ? `<span class="chip ok">Done in background</span>` : `<span class="chip failed">Background ${esc(s.bg.status)}</span>`;
+  if (s.status === "running") return `<span class="chip running">Running…</span>`;
+  return s.status === "failed" ? `<span class="chip failed">${s.noResult ? "No result recorded" : "Failed"}</span>` : `<span class="chip ok">Completed</span>`;
+}
 function renderDetail(anim) {
   const d = $("detail");
   d.classList.toggle("anim", !!anim && MOTION);
@@ -1587,13 +1614,14 @@ function renderDetail(anim) {
   if (s.kind === "note") {
     const r = s.reported, cat = s.status === "failed" ? "fail" : stepCat(s);
     let body = r ? block("What Claude says it is doing", r.detail) + block("Code", r.code) : block("Message", s.text);
+    if (s.output != null) body = (s.input?.command ? block("Command", s.input.command) : "") + body + block("Output", s.output);
     if (s.perm) body = block("Claude wants to use", label(s.tool)) + (s.tool === "Bash" ? block("Command", s.input?.command) : s.input?.file_path ? block("File", tilde(s.input.file_path)) : block("Input", s.input));
     d.innerHTML = head(cat, s.title, [timeChip, r ? `<span class="chip">reported by Claude · ${esc(r.kind)}</span>` : "", agentChip, sessChip]) + body;
     return;
   }
   const inp = s.input || {}, r = s.response, cat = s.status === "failed" ? "fail" : toolCat(s.tool);
-  const statusChip = s.status === "running" ? `<span class="chip running">Running…</span>` : s.status === "ok" ? `<span class="chip ok">Completed</span>` : `<span class="chip failed">${s.noResult ? "No result recorded" : "Failed"}</span>`;
-  const durChip = s.end ? `<span class="chip">took ${(s.end - s.start).toFixed(2)}s</span>` : "";
+  const statusChip = stepStatusChip(s);
+  const durChip = s.bg ? (s.bg.end ? `<span class="chip">took ${dur(s.bg.end - s.start)}</span>` : "") : s.end ? `<span class="chip">took ${(s.end - s.start).toFixed(2)}s</span>` : "";
   let html = head(cat, label(s.tool), [statusChip, timeChip, durChip, agentChip, sessChip]);
   const slots = [], slot = (fn) => `<div class="slot" data-i="${slots.push(fn) - 1}"></div>`;
   const live = !!anim && MOTION, opts = (jobs) => ({ animate: live, jobs, budget: 2.5 });
@@ -1643,7 +1671,7 @@ function turnSummary(sid) {
   const edits = new Set(turn.filter((x) => toolCat(x.tool) === "edit").map((x) => x.input?.file_path)).size;
   const fails = turn.filter((x) => x.status === "failed").length;
   const secs = (s.steps[s.steps.length - 1].start - (i >= 0 ? s.steps[i].start : turn[0].start));
-  return `${turn.length} actions · ${edits} files changed · ${fails} failed · ${dur(secs)}`;
+  return `${plural(turn.length, "action")} · ${plural(edits, "file")} changed · ${fails} failed · ${dur(secs)}`;
 }
 function bannerFor(s, phase) {
   const P = PAL();
@@ -1691,6 +1719,13 @@ function tickBanner() {
           if (!last.said && $("bKick").textContent !== "Thinking") setBanner("Thinking", "Claude is thinking…", last.kind === "tool" ? `Last step: ${label(last.tool)}` : "", PAL().prompt);
         }
       }
+    }
+  }
+  if (!text && current !== null && !RP.on) {
+    const now = Date.now() / 1000, bgs = [...bgSteps.values()].filter((x) => matches(x) && !sessions.get(x.sid)?.ended && now - x.start < 6 * 3600);
+    if (bgs.length) {
+      const last = bgs[bgs.length - 1], line = (last.liveOut || "").trimEnd().split("\n").pop().trim();
+      text = `${bgs.length} background command${bgs.length > 1 ? "s" : ""} running · ${dur(now - last.start)}${line ? ` · ${line.length > 70 ? line.slice(0, 70) + "…" : line}` : ""}`;
     }
   }
   if ($("bTime").textContent !== text) $("bTime").textContent = text;
@@ -2288,7 +2323,7 @@ function onEvent(e) {
   else if (current !== null && matches(step) && !RP.on) {
     applyToGraph(step, phase, true);
     timelineUpsert(step);
-    for (const c of changed || []) timelineUpsert(c);
+    for (const c of changed || []) { timelineUpsert(c); if (c === selected) renderDetail(false); }
     bannerFor(step, phase);
     if (step.kind !== "marker") {
       const P = PAL();
@@ -2311,7 +2346,7 @@ function onEvent(e) {
 
 $("clearBtn").onclick = async () => {
   await fetch("/clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-  sessions.clear(); allSteps.length = 0; allTimes.length = 0; byKey.clear(); termSid.clear(); resetGraph(); beats.length = 0;
+  sessions.clear(); allSteps.length = 0; allTimes.length = 0; byKey.clear(); bgSteps.clear(); termSid.clear(); resetGraph(); beats.length = 0;
   U.bySid.clear(); U.all = null; clearReplay(); closeFocus();
   for (const el of cardEl.values()) el.remove();
   cardEl.clear();
@@ -2452,15 +2487,20 @@ function diffView(a, b, { nums = false, animate = false, jobs = [], budget = 3 }
 }
 // A terminal window that types the command, then streams its output
 function termView(s, { animate = false, jobs = [], budget = 3 } = {}) {
-  const inp = s.input || {}, [out, err] = bashOut(s.response), cmd = inp.command || "";
+  const inp = s.input || {}, cmd = inp.command || "";
+  let [out, err] = bashOut(s.response);
+  // A background command's output is what it printed in the background, not the launch result
+  if (s.bg && s.bg.status !== "running" && s.liveOut != null) out = s.liveOut;
+  const isLive = () => s.status === "running" || s.bg?.status === "running";
   const w = document.createElement("div");
   w.className = "tw";
   w.innerHTML = `<div class="tw-bar"><i></i><i></i><i></i><span class="tw-title">${esc(base(s.cwd) || "terminal")}${inp.description ? " — " + esc(inp.description) : ""}</span><span class="tw-st"></span></div><pre class="tw-body">${inp.description ? `<span class="tw-cm"># ${esc(inp.description)}</span>\n` : ""}<span class="tw-ps">$ </span><span class="tw-cmd"></span>\n<span class="tw-out"></span><span class="tw-err"></span></pre>`;
   const q = (c) => w.querySelector(c), st = q(".tw-st");
   const setStatus = () => {
-    if (s.status === "running") {
+    if (isLive()) {
+      const bg = s.status !== "running", label = () => bg ? `in background ${dur(Date.now() / 1000 - s.start)}` : `running ${(Date.now() / 1000 - s.start).toFixed(1)}s`;
       st.className = "tw-st run";
-      q(".tw-out").innerHTML = `<span class="tw-wait">running… output appears here as the command prints it</span>`;
+      q(".tw-out").innerHTML = `<span class="tw-wait">${bg ? "running in the background…" : "running…"} output appears here as the command prints it</span>`;
       // Output arrives on the step while the command runs (see "output" events); show it as it grows
       let shown = null;
       const showOut = () => {
@@ -2475,23 +2515,24 @@ function termView(s, { animate = false, jobs = [], budget = 3 } = {}) {
       }
       showOut();
       const iv = setInterval(() => {
-        if (!w.isConnected || s.status !== "running") { clearInterval(iv); return; }
-        st.textContent = `running ${(Date.now() / 1000 - s.start).toFixed(1)}s`;
+        if (!w.isConnected || !isLive()) { clearInterval(iv); return; }
+        st.textContent = label();
         showOut();
       }, 100);
-      st.textContent = "running";
-    } else if (s.status === "failed") { st.className = "tw-st bad"; st.textContent = s.noResult ? "✗ no result" : "✗ failed"; }
+      st.textContent = label();
+    } else if (s.bg) { const ok = s.bg.status === "completed"; st.className = "tw-st " + (ok ? "ok" : "bad"); st.textContent = ok ? `✓ done in background${s.bg.end ? ` · ${dur(s.bg.end - s.start)}` : ""}` : `✗ background ${s.bg.status}`; }
+    else if (s.status === "failed") { st.className = "tw-st bad"; st.textContent = s.noResult ? "✗ no result" : "✗ failed"; }
     else { st.className = "tw-st ok"; st.textContent = `✓ done${s.end ? ` · ${(s.end - s.start).toFixed(1)}s` : ""}`; }
   };
   const anim = animate && MOTION;
   if (!anim) {
     q(".tw-cmd").textContent = cmd; q(".tw-err").textContent = err ? (out ? "\n" : "") + err : "";
-    if (s.status !== "running") q(".tw-out").textContent = out;
+    if (!isLive()) q(".tw-out").textContent = out;
     setStatus();
     return w;
   }
   jobs.push({ el: q(".tw-cmd"), text: cmd, caret: q(".tw-cmd"), cps: 90, max: Math.min(1.4, budget * 0.3) });
-  if (s.status === "running") jobs.push({ start: setStatus });
+  if (isLive()) jobs.push({ start: setStatus });
   else {
     jobs.push({ pause: 0.2, el: q(".tw-out"), text: out, caret: q(".tw-out"), cps: 2500, max: budget * 0.6 });
     if (err) jobs.push({ el: q(".tw-err"), text: (out ? "\n" : "") + err, caret: q(".tw-err"), cps: 2500, max: budget * 0.3 });
@@ -2566,7 +2607,7 @@ function renderFocus(animate) {
   const cat = s.kind === "prompt" ? "prompt" : s.status === "failed" ? "fail" : stepCat(s);
   const title = s.kind === "prompt" ? "Your prompt" : s.kind === "tool" ? label(s.tool) : s.title || "Step";
   const chips = [];
-  if (s.kind === "tool") chips.push(s.status === "running" ? `<span class="chip running">Running…</span>` : s.status === "failed" ? `<span class="chip failed">${s.noResult ? "No result recorded" : "Failed"}</span>` : `<span class="chip ok">Completed</span>`);
+  if (s.kind === "tool") chips.push(stepStatusChip(s));
   chips.push(`<span class="chip">${new Date(s.start * 1000).toLocaleString()}</span>`);
   if (s.end) chips.push(`<span class="chip">took ${(s.end - s.start).toFixed(2)}s</span>`);
   if (s.agent) chips.push(`<span class="chip">sub-agent · ${esc(s.agentType)}</span>`);
@@ -3359,7 +3400,7 @@ async function start() {
       if (e.kind === "terminal") { if (ready) safe(upsertTermInfo, e.terminal); return; }
       if (e.kind === "status") { U.status[e.session_id] = e.status; safe(renderAllRings); return; }
       if (e.kind === "live") { safe(setLive, e.sessions); return; }
-      if (e.kind === "output") { const st = byKey.get(e.tool_use_id); if (st && st.status === "running") st.liveOut = e.text; return; }
+      if (e.kind === "output") { const st = byKey.get(e.tool_use_id) || bgSteps.get(e.tool_use_id); if (st && (st.status === "running" || st.bg?.status === "running")) st.liveOut = e.text; return; }
       if (!ready) { buffer.push(e); return; }
       if (e.id <= maxId) return;
       if (e.id > maxId + 1) { catchUp(); return; }   // something was missed: fetch it all, in order

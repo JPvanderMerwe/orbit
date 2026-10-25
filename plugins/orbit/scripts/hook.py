@@ -81,8 +81,35 @@ def server_up(timeout=0.3):
         return False
 
 
+def version_tuple(text):
+    try:
+        return tuple(int(p) for p in str(text).split("."))
+    except ValueError:
+        return None
+
+
+def newest_install():
+    """(version, scripts folder) of the newest installed Orbit.
+
+    Claude Code keeps each plugin version in its own folder (.../orbit/3.1.0/scripts). A Claude session
+    that started before an update still runs the old folder's hooks, which must never bring the old
+    server back, so they launch the newest version instead."""
+    own = (version_tuple(SCRIPT_DIR.parent.name), SCRIPT_DIR)
+    if own[0] is None:  # not a versioned plugin folder (a git checkout or the standalone command)
+        return own
+    best = own
+    try:
+        for d in SCRIPT_DIR.parent.parent.iterdir():
+            v = version_tuple(d.name)
+            if v and v > best[0] and (d / "scripts" / "server.py").is_file():
+                best = (v, d / "scripts")
+    except OSError:
+        pass
+    return best
+
+
 def start_server(force=False):
-    """Launch server.py detached from this process. Throttled unless force=True."""
+    """Launch the newest installed server.py detached from this process. Throttled unless force=True."""
     migrate_old_data()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not force and SPAWN_STAMP.exists() and time.time() - SPAWN_STAMP.stat().st_mtime < 10:
@@ -94,8 +121,39 @@ def start_server(force=False):
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable, str(SCRIPT_DIR / "server.py")], **kwargs)
+    subprocess.Popen([sys.executable, str(newest_install()[1] / "server.py")], **kwargs)
     return True
+
+
+def upgrade_server():
+    """On a new Claude session: if the running server is older than the newest installed Orbit, replace it.
+
+    Skipped while any workspace terminal is open, because stopping the server closes those sessions."""
+    newest = newest_install()[0]
+    if newest is None:
+        return
+    try:
+        with urllib.request.urlopen(f"{URL}/health", timeout=0.5) as r:
+            health = json.loads(r.read())
+        if health.get("app") != APP or (version_tuple(health.get("version")) or ()) >= newest:
+            return
+        request = urllib.request.Request(f"{URL}/api/terms", headers={KEY_HEADER: access_key(), "Host": f"127.0.0.1:{PORT}"})
+        with urllib.request.urlopen(request, timeout=0.5) as r:
+            if any(t.get("alive") for t in json.loads(r.read()).get("terms", [])):
+                return
+        SPAWN_STAMP.touch()  # keep other sessions' hooks from restarting the old server meanwhile
+        os.kill(int((DATA_DIR / "server.pid").read_text()), signal.SIGTERM)
+    except (OSError, ValueError, urllib.error.URLError):
+        return
+    for _ in range(10):
+        time.sleep(0.1)
+        if not server_up(0.1):
+            break
+    start_server(force=True)
+    for _ in range(15):
+        time.sleep(0.1)
+        if server_up(0.1):
+            return
 
 
 def access_key():
@@ -124,6 +182,8 @@ def main():
     if not isinstance(data, dict):
         return
     migrate_old_data()
+    if data.get("hook_event_name") == "SessionStart":
+        upgrade_server()
     # SessionStart carries its own "source" (startup/resume/clear); keep it separately
     if "source" in data:
         data["source_type"] = data.pop("source")

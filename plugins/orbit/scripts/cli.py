@@ -28,9 +28,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server  # noqa: E402
+from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server, upgrade_server  # noqa: E402
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 STATUS_SCRIPT = Path(__file__).resolve().parent / "statusline.py"
 NEXT_FILE = DATA_DIR / "statusline-next.json"
@@ -46,7 +46,9 @@ MARKER_SL = "--orbit-statusline"
 
 def ensure_running():
     if server_up():
-        return True
+        upgrade_server()  # an older Orbit still running after an update is replaced (unless terminals are open)
+        if server_up():
+            return True
     start_server(force=True)
     for _ in range(40):
         time.sleep(0.1)
