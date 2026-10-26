@@ -30,8 +30,10 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server, upgrade_server  # noqa: E402
 
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
+# Claude Code runs hook and status line commands in a shell (Git Bash on Windows), which reads C:/x/y fine
+PYTHON = Path(sys.executable).as_posix()
 STATUS_SCRIPT = Path(__file__).resolve().parent / "statusline.py"
 NEXT_FILE = DATA_DIR / "statusline-next.json"
 HOOK_EVENTS = (
@@ -113,7 +115,7 @@ def claude_dir():
 
 def plugin_installed():
     try:
-        plugins = json.loads((claude_dir() / "plugins" / "installed_plugins.json").read_text()).get("plugins", {})
+        plugins = json.loads((claude_dir() / "plugins" / "installed_plugins.json").read_text(encoding="utf-8")).get("plugins", {})
     except (OSError, ValueError):
         return False
     return any(name.split("@")[0] == "orbit" for name in plugins)
@@ -123,7 +125,7 @@ def load_settings(path):
     if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
         print(f"{path} is not valid JSON, so it was left untouched. Fix it and try again.")
         sys.exit(1)
@@ -140,7 +142,7 @@ def save_settings(path, data):
         shutil.copy2(path, backup)
         print(f"Backed up your settings to {backup}")
     tmp = path.with_suffix(".orbit-tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
 
 
@@ -172,7 +174,7 @@ def install_hooks(force):
     settings = load_settings(path)
     hooks = settings.setdefault("hooks", {})
     strip_orbit(hooks)
-    command = f'"{sys.executable}" "{HOOK_SCRIPT}" {MARKER}'
+    command = f'"{PYTHON}" "{HOOK_SCRIPT.as_posix()}" {MARKER}'
     for event in HOOK_EVENTS:
         entry = {"hooks": [{"type": "command", "command": command, "timeout": 5}]}
         if event in WITH_MATCHER:
@@ -204,12 +206,12 @@ def install_statusline():
     bin_dir.mkdir(parents=True, exist_ok=True)
     for name in ("statusline.py", "hook.py"):
         shutil.copy2(STATUS_SCRIPT.parent / name, bin_dir / name)
-    command = f'"{sys.executable}" "{bin_dir / "statusline.py"}"'
+    command = f'"{PYTHON}" "{(bin_dir / "statusline.py").as_posix()}"'
     if MARKER_SL in str(current.get("command", "")):
         print("Orbit's status line is already installed (its script was refreshed).")
         return
     if current.get("command"):
-        NEXT_FILE.write_text(json.dumps({"command": current["command"], "original": current}))
+        NEXT_FILE.write_text(json.dumps({"command": current["command"], "original": current}), encoding="utf-8")
         print("Your existing status line is kept: Orbit passes the same data to it and shows its output.")
     else:
         NEXT_FILE.unlink(missing_ok=True)
@@ -226,7 +228,7 @@ def uninstall_statusline():
         print("Orbit's status line is not installed. Nothing changed.")
         return
     try:
-        original = json.loads(NEXT_FILE.read_text()).get("original")
+        original = json.loads(NEXT_FILE.read_text(encoding="utf-8")).get("original")
     except (OSError, ValueError):
         original = None
     if original:
@@ -266,7 +268,7 @@ def main():
         return
     if action == "stop":
         try:
-            os.kill(int((DATA_DIR / "server.pid").read_text()), signal.SIGTERM)
+            os.kill(int((DATA_DIR / "server.pid").read_text(encoding="utf-8")), signal.SIGTERM)
             print("Orbit stopped.")
         except (OSError, ValueError):
             print("Orbit is not running.")

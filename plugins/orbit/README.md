@@ -26,7 +26,7 @@ Restart Claude Code, then type `/orbit`.
 
 ## Requirements
 
-Claude Code, and Python 3.9 or newer as `python3` (standard library only). macOS or Linux for the built-in workspace terminals.
+Claude Code, and Python 3.9 or newer (standard library only), on macOS, Linux, or Windows 10 (version 1809) or later. On Windows, Orbit runs through Git Bash, which Claude Code uses there too, and finds Python as `py`, `python` or `python3`.
 
 ## Privacy
 

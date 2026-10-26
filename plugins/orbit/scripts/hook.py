@@ -52,7 +52,7 @@ def migrate_old_data():
     if DATA_DIR.exists() or not OLD_DATA_DIR.is_dir() or os.environ.get("ORBIT_DATA") or os.environ.get("CLAUDE_VIZ_DATA"):
         return
     try:
-        os.kill(int((OLD_DATA_DIR / "server.pid").read_text()), signal.SIGTERM)
+        os.kill(int((OLD_DATA_DIR / "server.pid").read_text(encoding="utf-8")), signal.SIGTERM)
         time.sleep(0.3)
     except (OSError, ValueError):
         pass
@@ -142,7 +142,7 @@ def upgrade_server():
             if any(t.get("alive") for t in json.loads(r.read()).get("terms", [])):
                 return
         SPAWN_STAMP.touch()  # keep other sessions' hooks from restarting the old server meanwhile
-        os.kill(int((DATA_DIR / "server.pid").read_text()), signal.SIGTERM)
+        os.kill(int((DATA_DIR / "server.pid").read_text(encoding="utf-8")), signal.SIGTERM)
     except (OSError, ValueError, urllib.error.URLError):
         return
     for _ in range(10):
@@ -158,7 +158,7 @@ def upgrade_server():
 
 def access_key():
     try:
-        return TOKEN_FILE.read_text().strip()
+        return TOKEN_FILE.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 
@@ -176,7 +176,7 @@ def post(payload):
 
 def main():
     try:
-        data = json.load(sys.stdin)
+        data = json.loads(sys.stdin.buffer.read())  # bytes: Claude Code sends UTF-8 whatever the system's code page
     except Exception:
         return
     if not isinstance(data, dict):

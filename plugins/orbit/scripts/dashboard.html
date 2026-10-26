@@ -852,10 +852,15 @@ function rgba(hex, a) {
 // ---------- helpers ----------
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
-const base = (p) => String(p || "").split("/").filter(Boolean).pop() || String(p || "");
-const dirOf = (p) => String(p || "").replace(/\/[^/]*$/, "") || "/";
-const tilde = (p) => String(p || "").replace(/^\/home\/[^/]+/, "~").replace(/^\/Users\/[^/]+/, "~");
-function shortPath(p) { if (!p) return ""; const parts = tilde(p).split("/"); return parts.length > 3 ? "…/" + parts.slice(-3).join("/") : tilde(p); }
+// Paths may use / (macOS, Linux) or \ (Windows)
+const base = (p) => String(p || "").split(/[\\/]/).filter(Boolean).pop() || String(p || "");
+const dirOf = (p) => String(p || "").replace(/[\\/][^\\/]*$/, "") || "/";
+const tilde = (p) => String(p || "").replace(/^\/home\/[^/]+/, "~").replace(/^\/Users\/[^/]+/, "~").replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/i, "~");
+function shortPath(p) {
+  if (!p) return "";
+  const t = tilde(p), sep = t.includes("\\") && !t.includes("/") ? "\\" : "/", parts = t.split(/[\\/]/);
+  return parts.length > 3 ? "…" + sep + parts.slice(-3).join(sep) : t;
+}
 function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
 function ago(ts) {
   const d = Math.max(0, Date.now() / 1000 - ts);
@@ -1833,7 +1838,7 @@ async function loadTerms() {
     for (const info of r.terms) upsertTermInfo(info, false);
   } catch {}
   const btn = $("newBtn"), note = $("heroNote");
-  if (!termSupport.supported) { btn.disabled = true; note.textContent = "Built-in sessions need macOS or Linux. You can still watch sessions started elsewhere."; }
+  if (!termSupport.supported) { btn.disabled = true; note.textContent = "Built-in sessions need macOS, Linux or Windows 10 (1809) or later. You can still watch sessions started elsewhere."; }
   else if (!termSupport.claude) { btn.disabled = true; note.textContent = "Claude Code was not found on this computer. Install it first."; }
   renderTabs(); renderWsStrip();
 }
@@ -2009,7 +2014,7 @@ async function browse(path) {
     if (document.activeElement !== $("mFolder")) $("mFolder").value = j.path;
     $("mFolder").dataset.resolved = j.path;
     const up = j.parent ? `<button class="m-dir up" data-p="${esc(j.parent)}">↑ Up to ${esc(base(j.parent) || "/")}</button>` : "";
-    const dirs = j.dirs.map((d) => `<button class="m-dir" data-p="${esc(j.path.replace(/\/$/, "") + "/" + d)}">${svg("folder")}${esc(d)}</button>`).join("");
+    const dirs = j.dirs.map((d) => `<button class="m-dir" data-p="${esc(j.path.replace(/[\\/]$/, "") + "/" + d)}">${svg("folder")}${esc(d)}</button>`).join("");
     $("mList").innerHTML = up + (dirs || `<div class="m-empty">No sub-folders. Launch here or go up.</div>`);
   } catch {}
 }
@@ -3264,7 +3269,7 @@ function renderChat(prevBlocks = null, stickBottom = true) {
     pane.innerHTML = `<div class="ch-top"><div class="ch-title">${esc(c.title || chatTitle({ first_prompt: prompts[0]?.text || "" }))}</div>
 <div class="ch-sub">${esc(tilde(c.cwd))} · ${first ? esc(new Date(first * 1000).toLocaleString()) : ""}${last ? " → " + esc(new Date(last * 1000).toLocaleString()) : ""}</div>
 <div class="ch-stats"><div><b>${prompts.length}</b>prompts</div><div><b>${tools.length}</b>steps</div><div><b>${files.size}</b>files changed</div><div><b>${tools.filter((x) => toolCat(x.name) === "cmd").length}</b>commands</div><div class="gold"><b class="odo" id="chOdo">$0.00</b>est. cost · ${fmtTok(u?.tokens || 0)} tokens</div>${first && last ? `<div><b>${dur(last - first)}</b>start to finish</div>` : ""}</div>
-<div class="ch-actions"><button class="btn primary" id="chResume" ${termSupport.supported && termSupport.claude ? "" : "disabled title=\"Built-in sessions need macOS or Linux and Claude Code installed\""}>Continue this conversation</button><button class="btn" id="chMap">Show on the map</button><button class="btn" id="chReplay">▶ Replay on the map</button><button class="btn" id="chExport">Export Markdown</button></div></div>
+<div class="ch-actions"><button class="btn primary" id="chResume" ${termSupport.supported && termSupport.claude ? "" : "disabled title=\"Built-in sessions need Claude Code installed, on macOS, Linux or Windows 10 (1809) or later\""}>Continue this conversation</button><button class="btn" id="chMap">Show on the map</button><button class="btn" id="chReplay">▶ Replay on the map</button><button class="btn" id="chExport">Export Markdown</button></div></div>
 <div class="ch-scroll" id="chScroll"><div class="ch-msgs" id="chMsgs"></div></div>`;
     $("chResume").onclick = () => launch(c.cwd || "~", "resume", null, c.id);
     $("chMap").onclick = () => showChatOnMap(false);

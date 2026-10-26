@@ -51,7 +51,7 @@ TOOLS = [
 def access_key():
     data_dir = os.environ.get("ORBIT_DATA") or os.environ.get("CLAUDE_VIZ_DATA") or os.path.join(os.path.expanduser("~"), ".orbit")
     try:
-        with open(os.path.join(data_dir, "token")) as f:
+        with open(os.path.join(data_dir, "token"), encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -86,7 +86,7 @@ def handle(message):
         result = {
             "protocolVersion": message.get("params", {}).get("protocolVersion", "2025-06-18"),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "orbit", "version": "3.2.0"},
+            "serverInfo": {"name": "orbit", "version": "3.3.0"},
             "instructions": INSTRUCTIONS,
         }
     elif method == "tools/list":
@@ -118,13 +118,13 @@ def handle(message):
 
 
 def main():
-    for line in sys.stdin:
+    for line in sys.stdin.buffer:  # bytes: MCP messages are UTF-8 whatever the system's code page
         line = line.strip()
         if not line:
             continue
         try:
             handle(json.loads(line))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             continue
 
 

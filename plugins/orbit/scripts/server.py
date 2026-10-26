@@ -13,7 +13,7 @@ secret access key stored in ~/.orbit/token (readable only by this user).
 The browser receives it once via the link /orbit opens and keeps it
 in a strict same-site cookie. The server binds to 127.0.0.1 only and also
 refuses requests whose Host, Origin or Sec-Fetch-Site show another website.
-Standard library only. Terminals need macOS or Linux.
+Standard library only. Terminals need macOS, Linux or Windows 10 (1809) or later.
 """
 import base64
 import hashlib
@@ -35,18 +35,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-try:
+VERSION = "3.3.0"
+HOST = "127.0.0.1"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+WINDOWS = os.name == "nt"
+
+if WINDOWS:
+    import windows  # noqa: E402 - ConPTY terminals and process checks
+    HAS_PTY = windows.conpty_available()
+else:
     import fcntl
     import pty
     import termios
     HAS_PTY = True
-except ImportError:  # Windows
-    HAS_PTY = False
-
-VERSION = "3.2.0"
-HOST = "127.0.0.1"
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
 from hook import APP, DATA_DIR, KEY_HEADER, PORT, clean_env  # noqa: E402
 
 DASHBOARD = SCRIPT_DIR / "dashboard.html"
@@ -83,12 +85,12 @@ def load_token():
     except OSError:
         pass
     if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text().strip()
+        token = TOKEN_FILE.read_text(encoding="utf-8").strip()
         if len(token) >= 32:
             return token
     token = secrets.token_urlsafe(32)
     fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
     return token
 
@@ -97,7 +99,7 @@ def load_token():
 def rewrite_log():
     """Keep the on-disk log to the events held in memory."""
     tmp = LOG_FILE.with_suffix(".tmp")
-    with tmp.open("w") as f:
+    with tmp.open("w", encoding="utf-8") as f:
         for e in events:
             f.write(json.dumps(e) + "\n")
     tmp.replace(LOG_FILE)
@@ -107,7 +109,7 @@ def load_history():
     global next_id
     if not LOG_FILE.exists():
         return
-    with LOG_FILE.open() as f:
+    with LOG_FILE.open(encoding="utf-8") as f:
         for line in f:
             try:
                 event = json.loads(line)
@@ -135,7 +137,7 @@ def add_event(payload):
         next_id += 1
         events.append(event)
         del events[:-MAX_EVENTS]
-        with LOG_FILE.open("a") as f:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
         if LOG_FILE.stat().st_size > MAX_FILE_BYTES:
             rewrite_log()
@@ -169,7 +171,7 @@ FAST_MULTIPLIER = 2  # fast mode list prices are twice the standard rate
 
 def load_prices():
     try:
-        extra = json.loads(PRICES_FILE.read_text())
+        extra = json.loads(PRICES_FILE.read_text(encoding="utf-8"))
         for model, rates in extra.items():
             if isinstance(rates, list) and len(rates) == 5:
                 PRICES[str(model)] = tuple(float(r) for r in rates)
@@ -552,10 +554,15 @@ def usage_report_for_path(path):
 
 # ---------------------------------------------------------------- terminals
 def find_claude():
-    found = shutil.which("claude")
+    if WINDOWS:  # the native installer makes claude.exe, npm makes claude.cmd (next to a "claude" file only Git Bash can run)
+        found = shutil.which("claude.exe") or shutil.which("claude.cmd")
+        places = (Path.home() / ".local/bin/claude.exe", Path(os.environ.get("APPDATA") or Path.home()) / "npm/claude.cmd")
+    else:
+        found = shutil.which("claude")
+        places = (Path.home() / ".local/bin/claude", Path.home() / ".claude/local/claude", Path("/usr/local/bin/claude"), Path("/opt/homebrew/bin/claude"))
     if found:
         return found
-    for p in (Path.home() / ".local/bin/claude", Path.home() / ".claude/local/claude", Path("/usr/local/bin/claude"), Path("/opt/homebrew/bin/claude")):
+    for p in places:
         if p.exists():
             return str(p)
     return None
@@ -583,22 +590,35 @@ class Terminal:
         if not claude:
             raise RuntimeError("Could not find the claude command. Install Claude Code first.")
         env = child_env(self.id)
-        pid, fd = pty.fork()
-        if pid == 0:  # child: become the user's own claude command
-            try:
-                os.chdir(cwd)
-                os.execvpe(claude, [claude, *args], env)
-            finally:
-                os._exit(127)
-        self.pid, self.fd = pid, fd
-        self.resize(cols, rows)
+        self.con = None
+        if WINDOWS:
+            cols, rows = self._size(cols, rows)
+            self.con = windows.PseudoConsole(windows.command_line(claude, args), cwd, env, cols, rows)
+            self.pid = self.con.pid
+        else:
+            pid, fd = pty.fork()
+            if pid == 0:  # child: become the user's own claude command
+                try:
+                    os.chdir(cwd)
+                    os.execvpe(claude, [claude, *args], env)
+                finally:
+                    os._exit(127)
+            self.pid, self.fd = pid, fd
+            self.resize(cols, rows)
         threading.Thread(target=self._read_loop, daemon=True).start()
 
     def info(self):
         return {"id": self.id, "cwd": self.cwd, "args": self.args, "created": self.created, "alive": self.alive, "exit_code": self.exit_code}
 
+    @staticmethod
+    def _size(cols, rows):
+        return max(20, min(int(cols), 500)), max(5, min(int(rows), 200))
+
     def resize(self, cols, rows):
-        cols, rows = max(20, min(int(cols), 500)), max(5, min(int(rows), 200))
+        cols, rows = self._size(cols, rows)
+        if self.con:
+            self.con.resize(cols, rows)
+            return
         try:
             fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         except OSError:
@@ -607,15 +627,16 @@ class Terminal:
     def write(self, data):
         if not self.alive:
             return
+        data = data.encode() if isinstance(data, str) else data
         try:
-            os.write(self.fd, data.encode() if isinstance(data, str) else data)
+            self.con.write(data) if self.con else os.write(self.fd, data)
         except OSError:
             pass
 
     def _read_loop(self):
         while True:
             try:
-                data = os.read(self.fd, 65536)
+                data = self.con.read() if self.con else os.read(self.fd, 65536)
             except OSError:
                 data = b""
             if not data:
@@ -627,16 +648,21 @@ class Terminal:
                 clients = list(self.clients)
             for c in clients:
                 c.send_binary(data)
-        try:
-            _, status = os.waitpid(self.pid, 0)
-            self.exit_code = os.waitstatus_to_exitcode(status)
-        except (ChildProcessError, OSError):
-            pass
+        if self.con:
+            self.con.exited.wait()
+            self.exit_code = self.con.exit_code
+            self.con.release()
+        else:
+            try:
+                _, status = os.waitpid(self.pid, 0)
+                self.exit_code = os.waitstatus_to_exitcode(status)
+            except (ChildProcessError, OSError):
+                pass
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
         self.alive = False
-        try:
-            os.close(self.fd)
-        except OSError:
-            pass
         msg = json.dumps({"t": "exit", "code": self.exit_code})
         with self.lock:
             clients = list(self.clients)
@@ -645,7 +671,9 @@ class Terminal:
         broadcast({"id": 0, "kind": "terminal", "terminal": self.info()})
 
     def kill(self):
-        if self.alive:
+        if self.alive and self.con:
+            self.con.kill()
+        elif self.alive:
             try:
                 os.killpg(os.getpgid(self.pid), signal.SIGHUP)
             except OSError:
@@ -681,6 +709,9 @@ def note_hooked(event):
 
 def proc_is_claude(pid, proc_start):
     """True if pid is still the Claude process its session file describes, not a reused process id."""
+    if WINDOWS:  # never os.kill(pid, 0) here: on Windows that sends Ctrl+C to the process
+        name = windows.process_name(pid)
+        return name is not None and any(k in name for k in ("claude", "node", "bun"))
     try:
         os.kill(pid, 0)
     except OSError:
@@ -688,7 +719,7 @@ def proc_is_claude(pid, proc_start):
     stat = Path(f"/proc/{pid}/stat")
     if stat.exists():  # Linux: the process start time must match the one Claude recorded
         try:
-            return not proc_start or stat.read_text().rsplit(")", 1)[1].split()[19] == str(proc_start)
+            return not proc_start or stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19] == str(proc_start)
         except (OSError, IndexError):
             return False
     try:
@@ -704,7 +735,7 @@ def scan_live():
     found = {}
     for f in SESSIONS_DIR.glob("*.json"):
         try:
-            info = json.loads(f.read_text())
+            info = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if not isinstance(info, dict):
@@ -853,7 +884,7 @@ def agent_events(sid, cwd, f, register_only=False):
             a = f["agents"][str(p)] = {"offset": start, "id": p.stem[len("agent-"):], "type": ""}
         if not a["type"]:
             try:
-                meta = json.loads(p.with_name(p.stem + ".meta.json").read_text())
+                meta = json.loads(p.with_name(p.stem + ".meta.json").read_text(encoding="utf-8"))
                 a["type"] = str(meta.get("agentType") or "") if isinstance(meta, dict) else ""
             except (OSError, ValueError):
                 pass
@@ -911,7 +942,7 @@ def follow(sid, cwd, path=None):
 def save_offsets():
     keep = {sid: off for sid, off in saved_offsets.items() if sid in live}
     try:
-        FOLLOW_FILE.write_text(json.dumps(keep))
+        FOLLOW_FILE.write_text(json.dumps(keep), encoding="utf-8")
     except OSError:
         pass
 
@@ -1304,7 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/clear":
             with events_lock:
                 events.clear()
-                LOG_FILE.write_text("")
+                LOG_FILE.write_text("", encoding="utf-8")
             with usage_lock:
                 transcripts.clear()
                 usage_cache.clear()
@@ -1343,7 +1374,7 @@ class Handler(BaseHTTPRequestHandler):
         if changed:
             broadcast({"id": 0, "kind": "status", "session_id": sid, "status": entry})
             try:
-                STATUS_FILE.write_text(json.dumps(plan_status))
+                STATUS_FILE.write_text(json.dumps(plan_status), encoding="utf-8")
             except OSError:
                 pass
         self._json(200, {"ok": True})
@@ -1361,7 +1392,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, t.info())
                 return
         if action == "move" and not HAS_PTY:
-            self._json(501, {"error": "Built-in terminals need macOS or Linux."})
+            self._json(501, {"error": "Built-in terminals need macOS, Linux or Windows 10 (1809) or later."})
             return
         if action == "move" and info["status"] == "busy" and not body.get("force"):
             self._json(409, {"error": "Claude is working in that session right now.", "busy": True})
@@ -1402,7 +1433,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _create_terminal(self, body):
         if not HAS_PTY:
-            self._json(501, {"error": "Built-in terminals need macOS or Linux."})
+            self._json(501, {"error": "Built-in terminals need macOS, Linux or Windows 10 (1809) or later."})
             return
         cwd = Path(os.path.expanduser(str(body.get("cwd") or "~"))).resolve()
         if not cwd.is_dir():
@@ -1504,10 +1535,15 @@ code{background:#141a2e;padding:2px 8px;border-radius:6px}p{color:#8c96b3}</styl
 
 def main():
     global TOKEN
+    for stream in (sys.stdout, sys.stderr):  # the log is UTF-8 everywhere (Windows would use the local code page)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     TOKEN = load_token()
     load_prices()
     try:
-        plan_status.update(json.loads(STATUS_FILE.read_text()))
+        plan_status.update(json.loads(STATUS_FILE.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         pass
     try:
@@ -1518,12 +1554,12 @@ def main():
     server.daemon_threads = True
     load_history()
     try:
-        saved_offsets.update({k: int(v) for k, v in json.loads(FOLLOW_FILE.read_text()).items()})
+        saved_offsets.update({k: int(v) for k, v in json.loads(FOLLOW_FILE.read_text(encoding="utf-8")).items()})
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     threading.Thread(target=watch_live, daemon=True).start()
     threading.Thread(target=watch_output, daemon=True).start()
-    PID_FILE.write_text(str(os.getpid()))
+    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     print(f"Orbit {VERSION} running at http://{HOST}:{PORT}", flush=True)
     try:
         server.serve_forever()
@@ -1533,7 +1569,7 @@ def main():
         for t in list(terminals.values()):
             t.kill()
         try:
-            if PID_FILE.read_text() == str(os.getpid()):
+            if PID_FILE.read_text(encoding="utf-8") == str(os.getpid()):
                 PID_FILE.unlink()
         except OSError:
             pass

@@ -2,22 +2,22 @@
 name: orbit
 description: Open Orbit, a live animated view of Claude Code - see every file Claude reads, command it runs and change it makes, replay past sessions, browse every saved conversation, track tokens, cost and plan limits, export reports, and start new Claude sessions in a visual workspace. Use when the user asks to open, show, watch, replay or visualise Claude's activity, cost or past conversations, to show plan usage, to start a visual Claude workspace, or to check or stop Orbit.
 argument-hint: "[all | chats | new [folder] | statusline [off] | status | stop]"
-allowed-tools: Bash(python3:*)
+allowed-tools: Bash(sh:*)
 ---
 
 Run exactly one command with the Bash tool, chosen from the user's argument:
 
 | Argument | Command |
 |---|---|
-| (none) | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" session ${CLAUDE_SESSION_ID}` |
-| `all` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py"` |
-| `chats` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" chats` |
-| `new` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" new` |
-| `new <folder>` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" new "<folder>"` |
-| `statusline` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" install-statusline` |
-| `statusline off` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" uninstall-statusline` |
-| `status` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" status` |
-| `stop` | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" stop` |
+| (none) | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py session ${CLAUDE_SESSION_ID}` |
+| `all` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py` |
+| `chats` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py chats` |
+| `new` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py new` |
+| `new <folder>` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py new "<folder>"` |
+| `statusline` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py install-statusline` |
+| `statusline off` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py uninstall-statusline` |
+| `status` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py status` |
+| `stop` | `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" cli.py stop` |
 
 The user's argument: $ARGUMENTS
 

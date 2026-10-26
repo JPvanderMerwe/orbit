@@ -9,6 +9,7 @@ with the same input and prints its output instead of Orbit's own line. Never fai
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -42,8 +43,20 @@ def own_line(data):
     return " · ".join(parts)
 
 
+def previous_line(command, raw):
+    """Run the status line the user had before, in the shell Claude Code would have used (Git Bash on Windows)."""
+    run = {"shell": True}
+    if os.name == "nt":
+        git = shutil.which("git")
+        bash = os.environ.get("CLAUDE_CODE_GIT_BASH_PATH") or (git and os.path.join(os.path.dirname(os.path.dirname(git)), "bin", "bash.exe"))
+        if bash and os.path.isfile(bash):
+            run = {"args": [bash, "-c", command]}
+    run.setdefault("args", command)
+    return subprocess.run(input=raw, capture_output=True, timeout=5, **run).stdout
+
+
 def main():
-    raw = sys.stdin.read()
+    raw = sys.stdin.buffer.read()  # bytes: Claude Code sends UTF-8 whatever the system's code page
     try:
         data = json.loads(raw)
     except ValueError:
@@ -54,17 +67,16 @@ def main():
         except Exception:
             pass
     try:
-        nxt = json.loads(NEXT_FILE.read_text()).get("command")
+        nxt = json.loads(NEXT_FILE.read_text(encoding="utf-8")).get("command")
     except (OSError, ValueError, AttributeError):
         nxt = None
     if nxt:
         try:
-            out = subprocess.run(nxt, shell=True, input=raw, capture_output=True, text=True, timeout=5).stdout
-            sys.stdout.write(out)
+            sys.stdout.buffer.write(previous_line(nxt, raw))
             return
         except Exception:
             pass
-    print(own_line(data if isinstance(data, dict) else {}))
+    sys.stdout.buffer.write((own_line(data if isinstance(data, dict) else {}) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

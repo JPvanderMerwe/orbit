@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.3.0 — 2026-10-26
+
+### New
+- **Windows.** Orbit now works on Windows 10 (version 1809) and later, including the built-in workspace terminals, which use Windows' own pseudo console. Claude Code installed with the native installer (`claude.exe`) or with npm (`claude.cmd`) both work.
+- Every change is now checked end to end on Windows, macOS and Linux (`tests/smoke.py`).
+
+### Fixed
+- Hooks and `/orbit` no longer need a command called `python3`. On Windows, where Claude Code runs them in Git Bash, Orbit uses `py`, `python` or `python3`, whichever is there.
+- Text that isn't plain English (accents, symbols, other alphabets) is read and saved as UTF-8 everywhere, so Windows can't garble it or drop the event.
+- The status line prints its symbols on Windows, and a status line you already had runs in Git Bash as Claude Code would run it.
+- File paths with backslashes show their file name, folder and `~` correctly.
+
 ## 3.2.0 — 2026-10-25
 
 ### New

@@ -74,8 +74,10 @@ Keyboard: `/` search · `E` expand the selected step · `←` `→` previous and
 ## Requirements
 
 - Claude Code
-- Python 3.9 or newer, available as `python3` (standard library only; nothing else to install)
-- macOS or Linux. Watching sessions may work on Windows; the built-in workspace terminals do not.
+- Python 3.9 or newer (standard library only; nothing else to install)
+- macOS, Linux, or Windows 10 (version 1809) or later
+
+On Windows, Orbit runs through Git Bash, the shell Claude Code itself uses there (it comes with [Git for Windows](https://git-scm.com/downloads/win)). Install Python from [python.org](https://www.python.org/downloads/windows/) or the Microsoft Store; Orbit finds it as `py`, `python` or `python3`.
 
 ## Privacy and security
 
@@ -113,6 +115,8 @@ Claude Desktop has no hooks, so its actions can't be captured directly. `extras/
 }
 ```
 
+On Windows, use `"command": "python"` (or `"py"`) and a path like `"C:/Users/you/orbit/extras/claude-desktop/mcp_server.py"`.
+
 Orbit must be running on the same computer (type `/orbit` in Claude Code once, or run `orbit`).
 
 ## What's in this repository
@@ -123,6 +127,7 @@ Orbit must be running on the same computer (type `/orbit` in Claude Code once, o
 | `plugins/orbit/` | The plugin: hooks, local server, dashboard, `/orbit` command |
 | `pyproject.toml` | Standalone `orbit` command (pip or pipx) |
 | `extras/claude-desktop/` | Optional MCP server for Claude Desktop |
+| `tests/smoke.py` | End-to-end check, run on Windows, macOS and Linux for every change |
 
 ## Credits
 
