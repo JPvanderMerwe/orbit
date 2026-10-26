@@ -173,7 +173,7 @@ def main():
         if not health:
             print((data_dir / "server.log").read_text(encoding="utf-8", errors="replace") if (data_dir / "server.log").exists() else "no log")
             return
-        check("server version is 3.4.0", health.get("version") == "3.4.0", health)
+        check("server version is 3.4.1", health.get("version") == "3.4.1", health)
         check("built-in terminals supported", health.get("terminals") is True, health)
         hook({"hook_event_name": "UserPromptSubmit", "prompt": TEXT})
         prompts = wait(lambda: [e for e in api("GET", "/events") if e.get("hook_event_name") == "UserPromptSubmit"])
@@ -253,7 +253,7 @@ def main():
                                 input=json.dumps({"session_id": SID, "rate_limits": {"five_hour": {"used_percentage": 12}}}).encode())
         check("status line prints", status.stdout.decode("utf-8", "replace").strip() == "◉ Orbit · 5h 12%", status.stdout)
         version = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "version"], env=env, capture_output=True, timeout=20)
-        check("orbit version", version.stdout.decode().strip() == "Orbit 3.4.0", version.stdout + version.stderr)
+        check("orbit version", version.stdout.decode().strip() == "Orbit 3.4.1", version.stdout + version.stderr)
         link = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "url"], env=env, capture_output=True, timeout=20)
         check("orbit url gives the private link", link.stdout.decode().strip() == f"{URL}/?k={key()}", link.stdout + link.stderr)
         inst = subprocess.run([sys.executable, str(SCRIPTS / "cli.py"), "install-hooks", "--force"], env=env, capture_output=True, timeout=20)

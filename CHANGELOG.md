@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.1 — 2026-10-26
+
+### Fixed
+- A Claude Desktop tool call made just as Claude Desktop quits still reaches Orbit when Orbit is still starting up (the relay now waits up to 15 seconds, not 5).
+
 ## 3.4.0 — 2026-10-26
 
 ### New
