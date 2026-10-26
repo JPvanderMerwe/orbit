@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbit-viewer"
-version = "3.3.0"
+version = "3.4.0"
 description = "Orbit: see everything Claude Code does. A live, animated map of every file it reads, command it runs and change it makes, with replay, cost tracking, chat history and shareable reports."
 readme = "README.md"
 requires-python = ">=3.9"

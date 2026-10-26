@@ -8,6 +8,8 @@ folder), with a fake `claude` command so no real Claude session starts:
 - a workspace terminal runs `claude`, shows its output, takes typing, reports its exit code, and can be closed
 - running Claude sessions are listed, other processes are not, and checking them does not disturb them
 - the status line, `orbit install-hooks` and the commands it writes work
+- `orbit install-desktop` puts Orbit in front of Claude Desktop's MCP servers: messages pass unchanged, every
+  tool call and result reaches Orbit (starting Orbit if needed), and uninstall-desktop restores the settings
 
     python tests/smoke.py
 """
@@ -51,6 +53,24 @@ else:
 env = dict(os.environ, ORBIT_PORT=str(PORT), ORBIT_DATA=str(data_dir), CLAUDE_CONFIG_DIR=str(claude_dir),
            PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
 results = []
+
+# A minimal MCP server with one tool, "shout"
+ECHO_MCP = """import json, sys
+for line in sys.stdin.buffer:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    if m["method"] == "initialize":
+        r = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "echo", "version": "1"}}
+    elif m["method"] == "tools/call" and m["params"]["arguments"].get("fail"):
+        r = {"content": [{"type": "text", "text": "it broke"}], "isError": True}
+    elif m["method"] == "tools/call":
+        r = {"content": [{"type": "text", "text": m["params"]["arguments"]["text"].upper()}]}
+    else:
+        r = {}
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": r}) + "\\n")
+    sys.stdout.flush()
+"""
 
 
 def check(name, ok, detail=""):
@@ -153,7 +173,7 @@ def main():
         if not health:
             print((data_dir / "server.log").read_text(encoding="utf-8", errors="replace") if (data_dir / "server.log").exists() else "no log")
             return
-        check("server version is 3.3.0", health.get("version") == "3.3.0", health)
+        check("server version is 3.4.0", health.get("version") == "3.4.0", health)
         check("built-in terminals supported", health.get("terminals") is True, health)
         hook({"hook_event_name": "UserPromptSubmit", "prompt": TEXT})
         prompts = wait(lambda: [e for e in api("GET", "/events") if e.get("hook_event_name") == "UserPromptSubmit"])
@@ -233,7 +253,7 @@ def main():
                                 input=json.dumps({"session_id": SID, "rate_limits": {"five_hour": {"used_percentage": 12}}}).encode())
         check("status line prints", status.stdout.decode("utf-8", "replace").strip() == "◉ Orbit · 5h 12%", status.stdout)
         version = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "version"], env=env, capture_output=True, timeout=20)
-        check("orbit version", version.stdout.decode().strip() == "Orbit 3.3.0", version.stdout + version.stderr)
+        check("orbit version", version.stdout.decode().strip() == "Orbit 3.4.0", version.stdout + version.stderr)
         link = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "url"], env=env, capture_output=True, timeout=20)
         check("orbit url gives the private link", link.stdout.decode().strip() == f"{URL}/?k={key()}", link.stdout + link.stderr)
         inst = subprocess.run([sys.executable, str(SCRIPTS / "cli.py"), "install-hooks", "--force"], env=env, capture_output=True, timeout=20)
@@ -244,6 +264,69 @@ def main():
         subprocess.run(["sh", "-c", command], env=env, timeout=20,
                        input=json.dumps({"session_id": SID, "hook_event_name": "Stop", "cwd": str(project)}).encode())
         check("an installed hook command reaches Orbit", bool(wait(lambda: len(api("GET", "/events")) > before)))
+
+        # ---- Claude Desktop: a stand-in MCP server, started through a launcher on PATH as npx would be
+        (work / "echo_mcp.py").write_text(ECHO_MCP, encoding="utf-8")
+        if WINDOWS:
+            (bin_dir / "echo-mcp.cmd").write_text(f'@"{sys.executable}" "{work / "echo_mcp.py"}" %*\r\n')
+        else:
+            (bin_dir / "echo-mcp").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{work / "echo_mcp.py"}" "$@"\n')
+            (bin_dir / "echo-mcp").chmod(0o755)
+        config = work / "claude_desktop_config.json"
+        original = {"mcpServers": {"echo": {"command": "echo-mcp", "args": ["--flag", "two words"], "env": {"A": "1"}},
+                                   "remote": {"url": "https://example.com/mcp"}}, "preferences": {"keep": True}}
+        config.write_text(json.dumps(original), encoding="utf-8")
+        inst = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "install-desktop", "--config", str(config)],
+                              env=env, capture_output=True, timeout=20)
+        wrapped = json.loads(config.read_text(encoding="utf-8"))
+        entry = wrapped["mcpServers"]["echo"]
+        check("install-desktop wraps the local server only", "--orbit-desktop" in entry["args"] and entry["env"] == {"A": "1"}
+              and wrapped["mcpServers"]["remote"] == original["mcpServers"]["remote"] and wrapped["preferences"] == {"keep": True},
+              inst.stdout + inst.stderr)
+
+        def desktop_session(calls):
+            """Start the server exactly as Claude Desktop would and make tool calls; returns the replies."""
+            p = subprocess.Popen([entry["command"], *entry["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"}]
+            msgs += [{"jsonrpc": "2.0", "id": 10 + i, "method": "tools/call", "params": {"name": "shout", "arguments": a}}
+                     for i, a in enumerate(calls)]
+            out, _ = p.communicate("".join(json.dumps(m, ensure_ascii=False) + "\n" for m in msgs).encode("utf-8"), timeout=30)
+            return [json.loads(line) for line in out.decode("utf-8").splitlines() if line.strip()], p.returncode
+
+        replies, code = desktop_session([{"text": TEXT}, {"fail": True}])
+        check("Desktop's messages pass through unchanged", code == 0 and len(replies) == 3
+              and replies[0]["result"]["serverInfo"]["name"] == "echo" and replies[1]["result"]["content"][0]["text"] == TEXT.upper(),
+              (code, replies))
+
+        def desktop_events():
+            return [e for e in api("GET", "/events") if e.get("source") == "claude-desktop"]
+        got = wait(lambda: len(desktop_events()) >= 4 and desktop_events()) or []
+        calls = {}  # tool use id -> its events, in the order Orbit received them
+        for e in got:
+            calls.setdefault(e.get("tool_use_id"), []).append(e)
+        flows = sorted([(e["hook_event_name"], e["tool_name"]) for e in c] for c in calls.values())
+        check("Desktop tool calls reach Orbit", flows == [[("PreToolUse", "mcp__echo__shout"), ("PostToolUse", "mcp__echo__shout")],
+                                                          [("PreToolUse", "mcp__echo__shout"), ("PostToolUseFailure", "mcp__echo__shout")]], flows)
+        done = next((c for c in calls.values() if c[0].get("tool_input") == {"text": TEXT}), None)
+        failed = next((c for c in calls.values() if c[0].get("tool_input") == {"fail": True}), None)
+        check("Desktop tool input and result are intact", bool(done and failed) and len(done) == 2 and len(failed) == 2
+              and TEXT.upper() in json.dumps(done[1].get("tool_response"), ensure_ascii=False) and failed[1].get("error") == "it broke", got)
+
+        os.kill(int((data_dir / "server.pid").read_text(encoding="utf-8")), signal.SIGTERM)
+        wait(lambda: not urllib.request.urlopen(URL + "/health", timeout=0.3), 5)
+        (data_dir / ".last-start").unlink(missing_ok=True)
+        # Claude Desktop starts all its MCP servers together when it opens
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(3) as pool:
+            codes = [r[1] for r in pool.map(lambda i: desktop_session([{"text": f"after restart {i}"}]), range(3))]
+        wanted = {f"after restart {i}" for i in range(3)}
+        arrived = wait(lambda: wanted <= {(e.get("tool_input") or {}).get("text") for e in desktop_events()
+                                          if e.get("hook_event_name") == "PostToolUse"}, 20)
+        check("Desktop starts Orbit when it is not running (3 servers at once)", codes == [0, 0, 0] and bool(arrived), codes)
+
+        subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "uninstall-desktop", "--config", str(config)], env=env, capture_output=True, timeout=20)
+        check("uninstall-desktop restores Claude Desktop's settings", json.loads(config.read_text(encoding="utf-8")) == original)
     finally:
         try:
             pid = int((data_dir / "server.pid").read_text(encoding="utf-8"))

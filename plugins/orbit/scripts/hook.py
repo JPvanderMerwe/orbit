@@ -88,18 +88,18 @@ def version_tuple(text):
         return None
 
 
-def newest_install():
-    """(version, scripts folder) of the newest installed Orbit.
+def newest_install(scripts=SCRIPT_DIR):
+    """(version, scripts folder) of the newest installed Orbit, looking beside the given scripts folder.
 
     Claude Code keeps each plugin version in its own folder (.../orbit/3.1.0/scripts). A Claude session
     that started before an update still runs the old folder's hooks, which must never bring the old
     server back, so they launch the newest version instead."""
-    own = (version_tuple(SCRIPT_DIR.parent.name), SCRIPT_DIR)
+    own = (version_tuple(scripts.parent.name), scripts)
     if own[0] is None:  # not a versioned plugin folder (a git checkout or the standalone command)
         return own
     best = own
     try:
-        for d in SCRIPT_DIR.parent.parent.iterdir():
+        for d in scripts.parent.parent.iterdir():
             v = version_tuple(d.name)
             if v and v > best[0] and (d / "scripts" / "server.py").is_file():
                 best = (v, d / "scripts")
@@ -108,7 +108,7 @@ def newest_install():
     return best
 
 
-def start_server(force=False):
+def start_server(force=False, scripts=SCRIPT_DIR):
     """Launch the newest installed server.py detached from this process. Throttled unless force=True."""
     migrate_old_data()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -117,11 +117,15 @@ def start_server(force=False):
     SPAWN_STAMP.touch()
     log = open(DATA_DIR / "server.log", "ab")
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "close_fds": True, "env": clean_env()}
+    command = [sys.executable, str(newest_install(scripts)[1] / "server.py")]
     if os.name == "nt":
-        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        try:  # outlive the app that started it (Claude Code, Claude Desktop) when that app closes its process group
+            subprocess.Popen(command, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kwargs)
+        except OSError:  # that app does not allow it
+            subprocess.Popen(command, creationflags=flags, **kwargs)
     else:
-        kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable, str(newest_install()[1] / "server.py")], **kwargs)
+        subprocess.Popen(command, start_new_session=True, **kwargs)
     return True
 
 

@@ -35,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 HOST = "127.0.0.1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -747,7 +747,7 @@ def scan_live():
             continue
         found[sid] = {"session_id": sid, "pid": pid, "cwd": str(info.get("cwd") or ""), "name": str(info.get("name") or ""),
                       "status": str(info.get("status") or ""), "started": (info.get("startedAt") or 0) / 1000,
-                      "term_id": term_by_pid.get(pid), "hooks": sid in hooked}
+                      "term_id": term_by_pid.get(pid), "hooks": sid in hooked, "entrypoint": str(info.get("entrypoint") or "")}
     return found
 
 

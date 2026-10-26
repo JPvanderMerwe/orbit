@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.4.0 — 2026-10-26
+
+### New
+- **Claude Desktop chats.** `/orbit desktop` (or `orbit install-desktop`) records every tool Claude Desktop uses on your computer, with its input and result, live in a "Claude Desktop" session. Orbit puts a relay in front of each MCP server in Claude Desktop's settings that passes every message through unchanged. Orbit starts by itself when Claude Desktop needs it. `/orbit desktop off` puts the settings back exactly as they were.
+- The "Running now" list says where each session runs: Terminal, Claude Desktop, VS Code or JetBrains.
+
+### Fixed
+- On Windows, Orbit no longer risks closing when the app that started it closes.
+
 ## 3.3.0 — 2026-10-26
 
 ### New

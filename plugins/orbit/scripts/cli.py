@@ -12,6 +12,8 @@
     orbit uninstall-hooks     remove the hooks that install-hooks added
     orbit install-statusline  show your Pro/Max plan usage in Orbit (keeps any status line you have)
     orbit uninstall-statusline  put your previous status line back
+    orbit install-desktop     show every tool Claude Desktop uses on this computer in Orbit [--config <file>]
+    orbit uninstall-desktop   undo install-desktop [--config <file>]
     orbit version             print the version
 
 Inside Claude Code the plugin runs the same commands through /orbit.
@@ -30,7 +32,7 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server, upgrade_server  # noqa: E402
 
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 # Claude Code runs hook and status line commands in a shell (Git Bash on Windows), which reads C:/x/y fine
 PYTHON = Path(sys.executable).as_posix()
@@ -44,6 +46,8 @@ WITH_MATCHER = {"PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFa
 # Added to every hook command install-hooks writes, so uninstall-hooks removes only Orbit's own
 MARKER = "--orbit-standalone"
 MARKER_SL = "--orbit-statusline"
+MARKER_DESKTOP = "--orbit-desktop"
+PROXY_SCRIPT = Path(__file__).resolve().parent / "mcp_proxy.py"
 
 
 def ensure_running():
@@ -240,6 +244,86 @@ def uninstall_statusline():
     print("Removed Orbit's status line" + (" and put your previous one back." if original else "."))
 
 
+# ---------------------------------------------------------------- Claude Desktop
+def desktop_config(args):
+    """Claude Desktop's settings file: the one given with --config, else where the app keeps it on this system."""
+    if "--config" in args and args.index("--config") + 1 < len(args):
+        return Path(os.path.expanduser(args[args.index("--config") + 1]))
+    if sys.platform == "darwin":
+        places = [Path.home() / "Library/Application Support/Claude"]
+    elif os.name == "nt":
+        places = [Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming") / "Claude"]
+    else:
+        places = [Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / name for name in ("Claude", "claude-desktop")]
+    for folder in places:
+        if folder.is_dir():
+            return folder / "claude_desktop_config.json"
+    return None
+
+
+def install_desktop(args):
+    path = desktop_config(args)
+    if not path:
+        print("Claude Desktop's settings folder was not found. If Claude Desktop is installed, open it once, or\n"
+              "give its settings file: orbit install-desktop --config <path to claude_desktop_config.json>")
+        return
+    settings = load_settings(path)
+    servers = settings.get("mcpServers") if isinstance(settings.get("mcpServers"), dict) else {}
+    # A fixed copy, so plugin updates (which move the plugin folder) never break Claude Desktop's settings
+    bin_dir = DATA_DIR / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("mcp_proxy.py", "hook.py"):
+        shutil.copy2(PROXY_SCRIPT.parent / name, bin_dir / name)
+    (bin_dir / "scripts.json").write_text(json.dumps({"scripts": str(PROXY_SCRIPT.parent)}), encoding="utf-8")
+    added, already, skipped = [], [], []
+    for name, entry in servers.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("command"), str):
+            skipped.append(name)  # a remote server (a web address), which runs elsewhere
+        elif MARKER_DESKTOP in (entry.get("args") or []):
+            already.append(name)
+        elif any(str(a).replace("\\", "/").endswith("claude-desktop/mcp_server.py") for a in entry.get("args") or []):
+            continue  # Orbit's own show_step server already reports to Orbit
+        else:
+            original = [entry["command"], *[str(a) for a in entry.get("args") or []]]
+            entry["command"] = PYTHON
+            entry["args"] = [(bin_dir / "mcp_proxy.py").as_posix(), MARKER_DESKTOP, name, "--", *original]
+            added.append(name)
+    if added:
+        save_settings(path, settings)
+    if not servers:
+        print(f"Claude Desktop has no MCP servers in {path}, so there is nothing for Orbit to watch yet.\n"
+              "Run this again after adding one (Claude Desktop: Settings > Developer > Edit Config).")
+        return
+    if added:
+        print(f"Orbit now records every tool Claude Desktop uses through: {', '.join(added)}.")
+    if already:
+        print(f"Already recorded: {', '.join(already)} (Orbit's copy was refreshed).")
+    if skipped:
+        print(f"Not recorded (remote servers, they run elsewhere): {', '.join(skipped)}.")
+    if added:
+        print("Quit Claude Desktop completely and open it again. Its tool use appears in Orbit as \"Claude Desktop\".\n"
+              "To undo: orbit uninstall-desktop")
+
+
+def uninstall_desktop(args):
+    path = desktop_config(args)
+    settings = load_settings(path) if path else {}
+    servers = settings.get("mcpServers") if isinstance(settings.get("mcpServers"), dict) else {}
+    restored = []
+    for name, entry in servers.items():
+        a = entry.get("args") if isinstance(entry, dict) else None
+        if isinstance(a, list) and MARKER_DESKTOP in a and "--" in a:
+            original = a[a.index("--") + 1:]
+            if original:
+                entry["command"], entry["args"] = original[0], original[1:]
+                restored.append(name)
+    if not restored:
+        print("Orbit is not set up in Claude Desktop. Nothing changed.")
+        return
+    save_settings(path, settings)
+    print(f"Claude Desktop runs {', '.join(restored)} directly again. Quit and reopen Claude Desktop to apply it.")
+
+
 # ---------------------------------------------------------------- main
 def main():
     args = sys.argv[1:]
@@ -261,6 +345,12 @@ def main():
         return
     if action == "uninstall-statusline":
         uninstall_statusline()
+        return
+    if action == "install-desktop":
+        install_desktop(args)
+        return
+    if action == "uninstall-desktop":
+        uninstall_desktop(args)
         return
     migrate_old_data()
     if action == "status":

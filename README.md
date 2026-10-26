@@ -52,6 +52,8 @@ orbit
 | `/orbit new [folder]` | `orbit new [folder]` | Start a new Claude session in the workspace |
 | `/orbit statusline` | `orbit install-statusline` | Show your Pro or Max plan limits in Orbit |
 | `/orbit statusline off` | `orbit uninstall-statusline` | Put your previous status line back |
+| `/orbit desktop` | `orbit install-desktop` | Record every tool Claude Desktop uses on this computer |
+| `/orbit desktop off` | `orbit uninstall-desktop` | Undo it |
 | `/orbit status` | `orbit status` | Say whether Orbit is running |
 | `/orbit stop` | `orbit stop` | Stop Orbit (also closes workspace sessions) |
 | | `orbit install-hooks` | Connect Orbit to Claude Code without the plugin |
@@ -100,9 +102,29 @@ On Windows, Orbit runs through Git Bash, the shell Claude Code itself uses there
 
 Orbit is the new name for Activity Viewer. Uninstall the old plugin first (`/plugin uninstall activity-viewer@activity-viewer`), then install Orbit. Your recorded activity and access key move from `~/.claude-activity-viewer` to `~/.orbit` automatically the first time Orbit runs.
 
-## Claude Desktop (optional, limited)
+## Claude Desktop
 
-Claude Desktop has no hooks, so its actions can't be captured directly. `extras/claude-desktop/mcp_server.py` gives Claude a `show_step` tool to report what it is doing, and those steps appear in Orbit. It is a narration chosen by Claude, not a guaranteed record. Add it to `claude_desktop_config.json`:
+**The Code tab.** Claude Code inside the Claude Desktop app is the same Claude Code, with the same plugins and hooks, so Orbit works there as it does in the terminal (not yet confirmed on every platform). In a local session, click **+** next to the prompt box, choose **Add plugins** and add Orbit (or install it once from the terminal; the desktop app reads the same settings). Cloud, SSH and WSL sessions can't run plugins, so Orbit can't see those.
+
+**Chats.** Claude Desktop's normal chats have no hooks, but everything Claude does on your computer from a chat goes through its MCP servers (the tools in Settings > Developer > Edit Config). Orbit can record every one of those tool calls and its result:
+
+```
+/orbit desktop
+```
+
+or, from a terminal, `orbit install-desktop`. Then quit Claude Desktop completely and open it again. Tool use appears in Orbit live, in a session called **Claude Desktop**. Orbit starts by itself if it isn't running.
+
+How it works: Orbit puts a small relay in front of each MCP server in `claude_desktop_config.json` (it backs the file up first). The relay starts the real server and passes every message through unchanged, and also sends each tool call and result to Orbit. `/orbit desktop off` (or `orbit uninstall-desktop`) puts the file back as it was.
+
+What Orbit can't show from Desktop chats:
+
+- The chat itself (your messages and Claude's replies). Claude Desktop doesn't share them with other programs.
+- Things Claude does on Anthropic's side: web search, the code it runs in its own sandbox, artifacts.
+- Tools added through Settings > Extensions, or remote connectors (they aren't in the settings file Orbit adjusts).
+
+Run `/orbit desktop` again after adding an MCP server, so Orbit records that one too. If Orbit can't find Claude Desktop's settings, give the file: `orbit install-desktop --config <path>`.
+
+**Optional narration.** `extras/claude-desktop/mcp_server.py` gives Claude a `show_step` tool to describe what it's doing in its own words, as steps marked "reported by Claude". It's Claude's own account, not a record. Add it to `claude_desktop_config.json`:
 
 ```json
 {
@@ -116,8 +138,6 @@ Claude Desktop has no hooks, so its actions can't be captured directly. `extras/
 ```
 
 On Windows, use `"command": "python"` (or `"py"`) and a path like `"C:/Users/you/orbit/extras/claude-desktop/mcp_server.py"`.
-
-Orbit must be running on the same computer (type `/orbit` in Claude Code once, or run `orbit`).
 
 ## What's in this repository
 

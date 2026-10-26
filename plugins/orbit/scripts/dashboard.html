@@ -2159,7 +2159,8 @@ function renderRunning() {
   $("runCount").textContent = `${list.length} open on this computer`;
   const html = list.map((x) => {
     const st = liveState(x), orbit = inOrbit(x), uc = U.all?.sessions?.[x.session_id];
-    const where = orbit ? "Orbit workspace" : x.hooks ? "Terminal" : "Terminal · read from its saved conversation";
+    const app = /desktop/i.test(x.entrypoint) ? "Claude Desktop" : /vscode/i.test(x.entrypoint) ? "VS Code" : /jetbrains/i.test(x.entrypoint) ? "JetBrains" : "Terminal";
+    const where = orbit ? "Orbit workspace" : x.hooks ? app : `${app} · read from its saved conversation`;
     return `<div class="run-row ${st}" data-sid="${esc(x.session_id)}" tabindex="0" role="button">
       <div class="run-name"><i></i><div><b>${esc(base(x.cwd) || x.name || x.session_id.slice(0, 8))}</b><small>${esc(tilde(x.cwd))} · ${esc(x.name || x.session_id.slice(0, 8))}</small></div></div>
       <div class="run-where">${esc(where)}</div>
