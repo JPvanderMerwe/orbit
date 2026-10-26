@@ -321,9 +321,11 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(3) as pool:
             codes = [r[1] for r in pool.map(lambda i: desktop_session([{"text": f"after restart {i}"}]), range(3))]
         wanted = {f"after restart {i}" for i in range(3)}
-        arrived = wait(lambda: wanted <= {(e.get("tool_input") or {}).get("text") for e in desktop_events()
-                                          if e.get("hook_event_name") == "PostToolUse"}, 20)
-        check("Desktop starts Orbit when it is not running (3 servers at once)", codes == [0, 0, 0] and bool(arrived), codes)
+        def restarted():
+            return {(e.get("tool_input") or {}).get("text") for e in desktop_events() if e.get("hook_event_name") == "PostToolUse"} & wanted
+        arrived = wait(lambda: restarted() == wanted, 20)
+        check("Desktop starts Orbit when it is not running (3 servers at once)", codes == [0, 0, 0] and bool(arrived),
+              (codes, sorted(wait(restarted, 1) or [])))
 
         subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "uninstall-desktop", "--config", str(config)], env=env, capture_output=True, timeout=20)
         check("uninstall-desktop restores Claude Desktop's settings", json.loads(config.read_text(encoding="utf-8")) == original)

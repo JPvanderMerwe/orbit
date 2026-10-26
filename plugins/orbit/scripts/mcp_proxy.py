@@ -166,7 +166,7 @@ def main():
     code = child.wait()
     flushed = threading.Thread(target=outbox.join, daemon=True)
     flushed.start()
-    flushed.join(5)  # let the last results reach Orbit
+    flushed.join(15)  # let the last results reach Orbit, which may still be starting
     sys.exit(code)
 
 
