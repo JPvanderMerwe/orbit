@@ -12,7 +12,8 @@
     orbit uninstall-hooks     remove the hooks that install-hooks added
     orbit install-statusline  show your Pro/Max plan usage in Orbit (keeps any status line you have)
     orbit uninstall-statusline  put your previous status line back
-    orbit install-desktop     show every tool Claude Desktop uses on this computer in Orbit [--config <file>]
+    orbit install-desktop     add Orbit to Claude Desktop: "open Orbit" in a chat opens it, and every tool
+                              Claude Desktop uses on this computer shows in it [--config <file>]
     orbit uninstall-desktop   undo install-desktop [--config <file>]
     orbit version             print the version
 
@@ -32,7 +33,7 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server, upgrade_server  # noqa: E402
 
-VERSION = "3.4.1"
+VERSION = "3.5.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 # Claude Code runs hook and status line commands in a shell (Git Bash on Windows), which reads C:/x/y fine
 PYTHON = Path(sys.executable).as_posix()
@@ -47,6 +48,7 @@ WITH_MATCHER = {"PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFa
 MARKER = "--orbit-standalone"
 MARKER_SL = "--orbit-statusline"
 MARKER_DESKTOP = "--orbit-desktop"
+MARKER_OPEN = "--orbit-open"  # Orbit's own entry in Claude Desktop, whose tool opens Orbit
 PROXY_SCRIPT = Path(__file__).resolve().parent / "mcp_proxy.py"
 
 
@@ -272,11 +274,13 @@ def install_desktop(args):
     # A fixed copy, so plugin updates (which move the plugin folder) never break Claude Desktop's settings
     bin_dir = DATA_DIR / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("mcp_proxy.py", "hook.py"):
+    for name in ("mcp_proxy.py", "desktop_mcp.py", "hook.py"):
         shutil.copy2(PROXY_SCRIPT.parent / name, bin_dir / name)
     (bin_dir / "scripts.json").write_text(json.dumps({"scripts": str(PROXY_SCRIPT.parent)}), encoding="utf-8")
     added, already, skipped = [], [], []
     for name, entry in servers.items():
+        if isinstance(entry, dict) and MARKER_OPEN in (entry.get("args") or []):
+            continue
         if not isinstance(entry, dict) or not isinstance(entry.get("command"), str):
             skipped.append(name)  # a remote server (a web address), which runs elsewhere
         elif MARKER_DESKTOP in (entry.get("args") or []):
@@ -288,21 +292,29 @@ def install_desktop(args):
             entry["command"] = PYTHON
             entry["args"] = [(bin_dir / "mcp_proxy.py").as_posix(), MARKER_DESKTOP, name, "--", *original]
             added.append(name)
-    if added:
+    # Orbit's own entry, whose open_orbit tool opens Orbit when the user asks in a chat
+    own = next((n for n, e in servers.items() if isinstance(e, dict) and MARKER_OPEN in (e.get("args") or [])), None)
+    own_entry = {"command": PYTHON, "args": [(bin_dir / "desktop_mcp.py").as_posix(), MARKER_OPEN]}
+    own_changed = not own or servers[own] != own_entry
+    if own:
+        servers[own] = own_entry
+    else:
+        settings["mcpServers"] = servers = {("orbit" if "orbit" not in servers else "orbit-viewer"): own_entry, **servers}
+    if added or own_changed:
         save_settings(path, settings)
-    if not servers:
-        print(f"Claude Desktop has no MCP servers in {path}, so there is nothing for Orbit to watch yet.\n"
-              "Run this again after adding one (Claude Desktop: Settings > Developer > Edit Config).")
-        return
+    print("In Claude Desktop, say \"open Orbit\" in any chat to open it.")
     if added:
-        print(f"Orbit now records every tool Claude Desktop uses through: {', '.join(added)}.")
+        print(f"Orbit records every tool Claude Desktop uses through: {', '.join(added)}.")
     if already:
         print(f"Already recorded: {', '.join(already)} (Orbit's copy was refreshed).")
     if skipped:
         print(f"Not recorded (remote servers, they run elsewhere): {', '.join(skipped)}.")
-    if added:
-        print("Quit Claude Desktop completely and open it again. Its tool use appears in Orbit as \"Claude Desktop\".\n"
-              "To undo: orbit uninstall-desktop")
+    if not added and not already:
+        print("Claude Desktop has no tools on this computer yet, so there is nothing to record. Run this again after\n"
+              "adding one (Claude Desktop: Settings > Developer > Edit Config).")
+    if added or own_changed:
+        print("Quit Claude Desktop completely and open it again for this to take effect.")
+    print("To undo: orbit uninstall-desktop")
 
 
 def uninstall_desktop(args):
@@ -310,6 +322,9 @@ def uninstall_desktop(args):
     settings = load_settings(path) if path else {}
     servers = settings.get("mcpServers") if isinstance(settings.get("mcpServers"), dict) else {}
     restored = []
+    for name in [n for n, e in servers.items() if isinstance(e, dict) and MARKER_OPEN in (e.get("args") or [])]:
+        del servers[name]
+        restored.append(name)
     for name, entry in servers.items():
         a = entry.get("args") if isinstance(entry, dict) else None
         if isinstance(a, list) and MARKER_DESKTOP in a and "--" in a:
@@ -321,7 +336,7 @@ def uninstall_desktop(args):
         print("Orbit is not set up in Claude Desktop. Nothing changed.")
         return
     save_settings(path, settings)
-    print(f"Claude Desktop runs {', '.join(restored)} directly again. Quit and reopen Claude Desktop to apply it.")
+    print("Orbit is removed from Claude Desktop. Quit and reopen Claude Desktop to apply it.")
 
 
 # ---------------------------------------------------------------- main

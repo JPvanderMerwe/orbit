@@ -173,7 +173,7 @@ def main():
         if not health:
             print((data_dir / "server.log").read_text(encoding="utf-8", errors="replace") if (data_dir / "server.log").exists() else "no log")
             return
-        check("server version is 3.4.1", health.get("version") == "3.4.1", health)
+        check("server version is 3.5.0", health.get("version") == "3.5.0", health)
         check("built-in terminals supported", health.get("terminals") is True, health)
         hook({"hook_event_name": "UserPromptSubmit", "prompt": TEXT})
         prompts = wait(lambda: [e for e in api("GET", "/events") if e.get("hook_event_name") == "UserPromptSubmit"])
@@ -253,7 +253,7 @@ def main():
                                 input=json.dumps({"session_id": SID, "rate_limits": {"five_hour": {"used_percentage": 12}}}).encode())
         check("status line prints", status.stdout.decode("utf-8", "replace").strip() == "◉ Orbit · 5h 12%", status.stdout)
         version = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "version"], env=env, capture_output=True, timeout=20)
-        check("orbit version", version.stdout.decode().strip() == "Orbit 3.4.1", version.stdout + version.stderr)
+        check("orbit version", version.stdout.decode().strip() == "Orbit 3.5.0", version.stdout + version.stderr)
         link = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "url"], env=env, capture_output=True, timeout=20)
         check("orbit url gives the private link", link.stdout.decode().strip() == f"{URL}/?k={key()}", link.stdout + link.stderr)
         inst = subprocess.run([sys.executable, str(SCRIPTS / "cli.py"), "install-hooks", "--force"], env=env, capture_output=True, timeout=20)
@@ -280,6 +280,8 @@ def main():
                               env=env, capture_output=True, timeout=20)
         wrapped = json.loads(config.read_text(encoding="utf-8"))
         entry = wrapped["mcpServers"]["echo"]
+        check("install-desktop adds Orbit's own entry", "--orbit-open" in (wrapped["mcpServers"].get("orbit") or {}).get("args", []),
+              wrapped["mcpServers"].keys())
         check("install-desktop wraps the local server only", "--orbit-desktop" in entry["args"] and entry["env"] == {"A": "1"}
               and wrapped["mcpServers"]["remote"] == original["mcpServers"]["remote"] and wrapped["preferences"] == {"keep": True},
               inst.stdout + inst.stderr)
@@ -326,6 +328,31 @@ def main():
         arrived = wait(lambda: restarted() == wanted, 20)
         check("Desktop starts Orbit when it is not running (3 servers at once)", codes == [0, 0, 0] and bool(arrived),
               (codes, sorted(wait(restarted, 1) or [])))
+
+        # "open Orbit" in a chat: Claude calls open_orbit, which starts Orbit if needed and opens the browser
+        os.kill(int((data_dir / "server.pid").read_text(encoding="utf-8")), signal.SIGTERM)
+        wait(lambda: not urllib.request.urlopen(URL + "/health", timeout=0.3), 5)
+        opened = work / "opened.txt"
+        if WINDOWS:
+            browser = bin_dir / "fakebrowser.cmd"
+            browser.write_text(f'@>"{opened}" echo %*\r\n')
+        else:
+            browser = bin_dir / "fakebrowser"
+            browser.write_text(f'#!/bin/sh\necho "$1" > "{opened}"\n')
+            browser.chmod(0o755)
+        orbit_entry = wrapped["mcpServers"]["orbit"]
+        p = subprocess.Popen([orbit_entry["command"], *orbit_entry["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             env=dict(env, BROWSER=str(browser)))
+        msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "open_orbit", "arguments": {}}}]
+        out, _ = p.communicate("".join(json.dumps(m) + "\n" for m in msgs).encode(), timeout=40)
+        answers = {r["id"]: r for r in (json.loads(x) for x in out.decode("utf-8").splitlines() if x.strip())}
+        said = ((answers.get(3) or {}).get("result") or {}).get("content", [{}])[0].get("text", "")
+        check("Claude Desktop lists the open_orbit tool", [t["name"] for t in answers.get(2, {}).get("result", {}).get("tools", [])] == ["open_orbit"], answers)
+        check("open Orbit starts Orbit and opens the private link", said == "Orbit opened in your browser."
+              and opened.exists() and opened.read_text().strip() == f"{URL}/?k={key()}", (said, opened.exists() and opened.read_text()))
+        check("Claude never sees the access key", key() not in out.decode("utf-8"))
 
         subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "uninstall-desktop", "--config", str(config)], env=env, capture_output=True, timeout=20)
         check("uninstall-desktop restores Claude Desktop's settings", json.loads(config.read_text(encoding="utf-8")) == original)

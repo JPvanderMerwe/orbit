@@ -21,7 +21,7 @@ Restart Claude Code, then type `/orbit`.
 | `/orbit new [folder]` | Start a new Claude session in the workspace |
 | `/orbit statusline` | Show your Pro or Max plan limits in Orbit (keeps any status line you have) |
 | `/orbit statusline off` | Put your previous status line back |
-| `/orbit desktop` | Record every tool Claude Desktop chats use on this computer (type it here in Claude Code, then restart Claude Desktop) |
+| `/orbit desktop` | Add Orbit to Claude Desktop: say "open Orbit" in a chat to open it, and every tool Claude Desktop uses on this computer is recorded (restart Claude Desktop after) |
 | `/orbit desktop off` | Undo it |
 | `/orbit status` | Say whether Orbit is running |
 | `/orbit stop` | Stop Orbit (also closes workspace sessions) |

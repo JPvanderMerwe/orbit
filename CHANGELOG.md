@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.5.0 — 2026-10-26
+
+### New
+- **"Open Orbit" in Claude Desktop.** After the one-time setup, say "open Orbit" in any Claude Desktop chat and Claude opens it in your browser, starting it first if needed. Nothing opens unless you ask, and Claude never sees your access key.
+- Setup for Claude Desktop without Claude Code or pipx: two commands with Python's own installer, on Windows, macOS and Linux.
+
 ## 3.4.1 — 2026-10-26
 
 ### Fixed

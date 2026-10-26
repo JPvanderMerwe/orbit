@@ -86,7 +86,7 @@ def handle(message):
         result = {
             "protocolVersion": message.get("params", {}).get("protocolVersion", "2025-06-18"),
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "orbit", "version": "3.4.1"},
+            "serverInfo": {"name": "orbit", "version": "3.5.0"},
             "instructions": INSTRUCTIONS,
         }
     elif method == "tools/list":
