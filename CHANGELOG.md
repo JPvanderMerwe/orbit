@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.6.0 — 2026-11-11
+
+### New
+- **See what Claude did, right in the chat.** Each group of steps in a conversation is now open by default. Every step shows what it did: the lines of code it added and removed, the command it ran and what it printed, or the task it gave a sub-agent. Edits show their +/− line counts. Click any step for the full view. Collapse a group and it stays collapsed.
+- **"Working now" bar.** While Claude works in the conversation you are looking at, a bar under it says what Claude is doing at that moment ("Editing server.py", "Running a command") and for how long. Steps still in progress show "running…".
+
+### Fixed
+- **Chats keep up with Claude.** An open conversation updates within about a second of Claude writing to it, however long it has been open or idle. Previously it stopped updating after 15 quiet minutes and only caught up when you reopened it.
+- Finished steps now fill in their results. Previously a step could look unfinished until you reopened the chat.
+- The conversation's title, prompt, step and file counts now update as the chat grows.
+- The conversation list now refreshes by itself: new chats, titles and latest prompts appear without leaving the page.
+- Updates are fast on long chats. Orbit reads only what is new instead of re-reading the whole file (often 50–130 MB) every 4 seconds. An update now takes milliseconds, not over a second.
+- Chats catch up after a dropped connection, a sleeping laptop, or switching back to the tab. A chat file that Claude Code rewrites is reloaded in full.
+- New messages slide in without redrawing the whole conversation, so your scroll position and open steps stay put.
+
 ## 3.5.0 — 2026-10-26
 
 ### New

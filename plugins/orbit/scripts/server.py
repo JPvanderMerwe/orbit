@@ -31,11 +31,12 @@ import sys
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "3.5.0"
+VERSION = "3.6.0"
 HOST = "127.0.0.1"
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -348,6 +349,7 @@ history_cache = {}    # path -> (mtime, size, summary)
 history_lock = threading.Lock()
 EDGE = 256 * 1024
 CHAT_TEXT = 4000
+CHAT_CODE = 20000  # code Claude writes: enough to show the change, not whole huge files
 
 
 def _lines(chunk, drop_first):
@@ -481,64 +483,115 @@ def result_text(content):
     return ""
 
 
-def read_chat(sid):
+class ChatState:
+    """One conversation read incrementally: only what was added to the transcript since the last read is parsed.
+
+    Every item remembers the file offset at which it last changed (its "rev"), so the page can ask for just the
+    items that changed since the rev it already has. "gen" changes when the file is rewritten from the start."""
+
+    def __init__(self, path):
+        self.path = path
+        self.reset()
+
+    def reset(self):
+        self.offset, self.items, self.revs, self.tools = 0, [], [], {}
+        self.title, self.cwd, self.gen = "", "", uuid.uuid4().hex[:8]
+
+    def _add(self, item):
+        self.items.append(item)
+        self.revs.append(self.offset)
+
+    def update(self):
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:
+            return
+        if size < self.offset:  # rewritten from the start
+            self.reset()
+        while self.offset < size:
+            rows, offset = read_new(self.path, self.offset)
+            if offset == self.offset:  # only a half-written last line so far
+                break
+            self.offset = offset
+            for row in rows:
+                self._row(row)
+
+    def _row(self, row):
+        if row.get("isSidechain"):
+            return
+        kind, t = row.get("type"), iso_time(row.get("timestamp")) if row.get("timestamp") else 0
+        self.cwd = self.cwd or row.get("cwd", "")
+        if kind == "ai-title":
+            self.title = row.get("aiTitle", "")
+            return
+        if kind == "system" and row.get("subtype") == "turn_duration":
+            self._add({"k": "turn", "t": t, "ms": row.get("durationMs", 0)})
+            return
+        msg = row.get("message") if isinstance(row.get("message"), dict) else None
+        if not msg:
+            return
+        if kind == "user":
+            text = human_text(row)
+            if text is not None:
+                self._add({"k": "cmd" if "<command-name>" in text else "user", "t": t, "text": clip(text, 20000)})
+                return
+            content = msg.get("content")
+            if isinstance(content, list):
+                for b in content:
+                    if not (isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in self.tools):
+                        continue
+                    i = self.tools[b["tool_use_id"]]  # the latest result wins, as before
+                    item = self.items[i]
+                    item["ok"] = not b.get("is_error")
+                    item["end"] = t
+                    res = row.get("toolUseResult")
+                    # Commands and file writes keep their structured result (stdout/stderr, the file before);
+                    # everything else keeps the plain text Claude saw
+                    if item["name"] in ("Bash", "Write") and isinstance(res, dict):
+                        item["res"] = clip({k: res.get(k) for k in ("stdout", "stderr", "interrupted", "type", "originalFile") if k in res},
+                                           CHAT_CODE if item["name"] == "Write" else CHAT_TEXT)
+                    else:
+                        item["result"] = clip(result_text(b.get("content")))
+                    self.revs[i] = self.offset
+            elif (row.get("origin") or {}).get("kind") in ("task-notification", "peer") and isinstance(content, str):
+                self._add({"k": "note", "t": t, "text": clip(content, 600)})
+            return
+        if kind == "assistant":
+            for b in msg.get("content") or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text" and b.get("text", "").strip():
+                    self._add({"k": "claude", "t": t, "text": clip(b["text"], 40000), "model": msg.get("model", "")})
+                elif b.get("type") == "tool_use":
+                    self.tools[b.get("id")] = len(self.items)
+                    self._add({"k": "tool", "t": t, "id": b.get("id"), "name": b.get("name", ""), "input": clip(b.get("input"), CHAT_CODE)})
+
+
+chat_states = OrderedDict()  # transcript path -> ChatState, the most recently read last
+chat_lock = threading.Lock()
+CHAT_KEEP = 8
+
+
+def read_chat(sid, since=None, gen=None):
+    """A conversation as the page shows it. With since and gen from an earlier answer, only the items that
+    changed after that are sent ("changed": [[index, item], ...]); otherwise all of them ("items")."""
     path = find_transcript(sid)
     if not path:
         return None
-    items, tools, title, cwd = [], {}, "", ""
-    with open(path, "rb") as f:
-        for line in f:
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(row, dict) or row.get("isSidechain"):
-                continue
-            kind, t = row.get("type"), iso_time(row.get("timestamp")) if row.get("timestamp") else 0
-            cwd = cwd or row.get("cwd", "")
-            if kind == "ai-title":
-                title = row.get("aiTitle", "")
-                continue
-            if kind == "system" and row.get("subtype") == "turn_duration":
-                items.append({"k": "turn", "t": t, "ms": row.get("durationMs", 0)})
-                continue
-            msg = row.get("message") if isinstance(row.get("message"), dict) else None
-            if not msg:
-                continue
-            if kind == "user":
-                text = human_text(row)
-                if text is not None:
-                    items.append({"k": "cmd" if "<command-name>" in text else "user", "t": t, "text": clip(text, 20000)})
-                    continue
-                content = msg.get("content")
-                if isinstance(content, list):
-                    for b in content:
-                        if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in tools:
-                            item = tools[b["tool_use_id"]]
-                            item["ok"] = not b.get("is_error")
-                            item["end"] = t
-                            res = row.get("toolUseResult")
-                            # Commands and file writes keep their structured result (stdout/stderr, the file before);
-                            # everything else keeps the plain text Claude saw
-                            if item["name"] in ("Bash", "Write") and isinstance(res, dict):
-                                item["res"] = clip({k: res.get(k) for k in ("stdout", "stderr", "interrupted", "type", "originalFile") if k in res})
-                            else:
-                                item["result"] = clip(result_text(b.get("content")))
-                elif (row.get("origin") or {}).get("kind") in ("task-notification", "peer") and isinstance(content, str):
-                    items.append({"k": "note", "t": t, "text": clip(content, 600)})
-                continue
-            if kind == "assistant":
-                for b in msg.get("content") or []:
-                    if not isinstance(b, dict):
-                        continue
-                    if b.get("type") == "text" and b.get("text", "").strip():
-                        items.append({"k": "claude", "t": t, "text": clip(b["text"], 40000), "model": msg.get("model", "")})
-                    elif b.get("type") == "tool_use":
-                        item = {"k": "tool", "t": t, "id": b.get("id"), "name": b.get("name", ""), "input": clip(b.get("input"), 8000)}
-                        tools[b.get("id")] = item
-                        items.append(item)
+    with chat_lock:
+        st = chat_states.pop(str(path), None) or ChatState(str(path))
+        chat_states[str(path)] = st
+        while len(chat_states) > CHAT_KEEP:
+            chat_states.popitem(last=False)
+        st.update()
+        out = {"id": sid, "title": st.title, "cwd": st.cwd, "rev": st.offset, "gen": st.gen, "count": len(st.items)}
+        if since is not None and gen == st.gen and since <= st.offset:
+            out["changed"] = [[i, st.items[i]] for i in range(len(st.items)) if st.revs[i] > since]
+        else:
+            out["items"] = list(st.items)
+        body = json.dumps(out)  # while still locked: later reads change these items
     usage = usage_report_for_path(str(path))
-    return {"id": sid, "title": title, "cwd": cwd, "items": items, "usage": usage}
+    return body[:-1] + ', "usage": ' + json.dumps(usage) + "}"
 
 
 def usage_report_for_path(path):
@@ -983,6 +1036,51 @@ def watch_live():
         time.sleep(LIVE_EVERY)
 
 
+# ---------------------------------------------------------------- transcript changes
+# Tells the page the moment any saved conversation grows or appears, so an open chat and the chat list
+# keep up with Claude without the page re-reading anything that has not changed.
+TRANSCRIPTS_EVERY = 0.75
+transcript_sizes = {}  # transcript path -> (size, mtime)
+
+
+def scan_transcripts():
+    found = {}
+    try:
+        projects = list(os.scandir(CLAUDE_DIR / "projects"))
+    except OSError:
+        return found
+    for d in projects:
+        try:
+            if not d.is_dir():
+                continue
+            for f in os.scandir(d.path):
+                if f.name.endswith(".jsonl") and f.is_file():
+                    st = f.stat()
+                    found[f.path] = (st.st_size, st.st_mtime)
+        except OSError:
+            continue
+    return found
+
+
+def watch_transcripts():
+    first = True
+    while True:
+        try:
+            now = scan_transcripts()
+            changed = [p for p, v in now.items() if transcript_sizes.get(p) != v]
+            gone = [p for p in transcript_sizes if p not in now]
+            transcript_sizes.clear()
+            transcript_sizes.update(now)
+            if not first and (changed or gone):
+                for p in changed:
+                    broadcast({"id": 0, "kind": "chat", "session_id": Path(p).stem, "size": now[p][0]})
+                broadcast({"id": 0, "kind": "history"})
+            first = False
+        except Exception as e:  # noqa: BLE001 - keep watching whatever one bad folder does
+            print(f"Orbit: transcript watcher: {e}", file=sys.stderr, flush=True)
+        time.sleep(TRANSCRIPTS_EVERY)
+
+
 # ---------------------------------------------------------------- live command output
 # While a command runs, Claude Code writes its output to a file in the session's "tasks" folder, next to
 # the scratchpad folder that hook events name. Orbit tails that file so a long command shows its output
@@ -1288,8 +1386,16 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/search":
             self._json(200, {"ids": search_history(parse_qs(url.query).get("q", [""])[0])})
         elif path == "/api/chat":
-            chat = read_chat(parse_qs(url.query).get("session", [""])[0])
-            self._json(200 if chat else 404, chat or {"error": "conversation not found"})
+            qs = parse_qs(url.query)
+            try:
+                since = int(qs["since"][0]) if "since" in qs else None
+            except ValueError:
+                since = None
+            chat = read_chat(qs.get("session", [""])[0], since, qs.get("gen", [""])[0])
+            if chat:
+                self._send(200, chat)
+            else:
+                self._json(404, {"error": "conversation not found"})
         elif path == "/api/status":
             self._json(200, plan_status)
         elif path == "/api/output":
@@ -1559,6 +1665,7 @@ def main():
         pass
     threading.Thread(target=watch_live, daemon=True).start()
     threading.Thread(target=watch_output, daemon=True).start()
+    threading.Thread(target=watch_transcripts, daemon=True).start()
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     print(f"Orbit {VERSION} running at http://{HOST}:{PORT}", flush=True)
     try:

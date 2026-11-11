@@ -33,7 +33,7 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import DATA_DIR, KEY_HEADER, URL, access_key, migrate_old_data, server_up, start_server, upgrade_server  # noqa: E402
 
-VERSION = "3.5.0"
+VERSION = "3.6.0"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 # Claude Code runs hook and status line commands in a shell (Git Bash on Windows), which reads C:/x/y fine
 PYTHON = Path(sys.executable).as_posix()

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hook import URL, access_key, server_up, start_server  # noqa: E402
 from mcp_proxy import orbit_scripts, wait_for_orbit  # noqa: E402
 
-VERSION = "3.5.0"
+VERSION = "3.6.0"
 TOOLS = [{
     "name": "open_orbit",
     "description": "Open Orbit, the user's live view of what Claude does on this computer, in their web browser. "

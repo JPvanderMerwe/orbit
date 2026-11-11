@@ -8,6 +8,7 @@ folder), with a fake `claude` command so no real Claude session starts:
 - a workspace terminal runs `claude`, shows its output, takes typing, reports its exit code, and can be closed
 - running Claude sessions are listed, other processes are not, and checking them does not disturb them
 - the status line, `orbit install-hooks` and the commands it writes work
+- an open chat is told when its conversation grows and gets only what changed, even mid-line or rewritten
 - `orbit install-desktop` puts Orbit in front of Claude Desktop's MCP servers: messages pass unchanged, every
   tool call and result reaches Orbit (starting Orbit if needed), and uninstall-desktop restores the settings
 
@@ -173,11 +174,48 @@ def main():
         if not health:
             print((data_dir / "server.log").read_text(encoding="utf-8", errors="replace") if (data_dir / "server.log").exists() else "no log")
             return
-        check("server version is 3.5.0", health.get("version") == "3.5.0", health)
+        check("server version is 3.6.0", health.get("version") == "3.6.0", health)
         check("built-in terminals supported", health.get("terminals") is True, health)
         hook({"hook_event_name": "UserPromptSubmit", "prompt": TEXT})
         prompts = wait(lambda: [e for e in api("GET", "/events") if e.get("hook_event_name") == "UserPromptSubmit"])
         check("non-English prompt text arrives intact", bool(prompts) and prompts[0].get("prompt") == TEXT, prompts)
+
+        # ---- an open chat keeps up with Claude: the page is told when it grows and gets only what changed
+        chat_sid = str(uuid.uuid4())
+        chat_file = claude_dir / "projects" / "-smoke" / f"{chat_sid}.jsonl"
+        chat_file.parent.mkdir(parents=True)
+        row = lambda kind, content, **kw: json.dumps({"type": kind, "cwd": str(project), "timestamp": "2026-11-11T10:00:00Z",
+                                                      "message": {"role": kind, "content": content}, **kw}) + "\n"
+        chat_file.write_text(row("user", TEXT), encoding="utf-8")
+        seen = []
+        def listen():
+            req = urllib.request.Request(URL + "/stream", headers={"X-Orbit-Key": key()})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                for line in r:
+                    if line.startswith(b"data: "):
+                        seen.append(json.loads(line[6:]))
+        import threading
+        threading.Thread(target=listen, daemon=True).start()
+        first = api("GET", f"/api/chat?session={chat_sid}")
+        check("chat opens with its first prompt", [i["text"] for i in first.get("items", [])] == [TEXT], first)
+        time.sleep(1.2)  # let the transcript watcher see the file as it is now
+        with chat_file.open("a", encoding="utf-8") as f:
+            f.write(row("assistant", [{"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"command": "ls"}}]))
+            f.write(row("assistant", [{"type": "text", "text": "half"}])[:20])  # a line Claude is still writing
+        told = wait(lambda: [e for e in seen if e.get("kind") == "chat" and e.get("session_id") == chat_sid], 5)
+        check("page is told the chat changed", bool(told), seen[-5:])
+        step = api("GET", f"/api/chat?session={chat_sid}&since={first['rev']}&gen={first['gen']}")
+        check("only the new step is sent", "items" not in step and step.get("count") == 2 and [c[0] for c in step.get("changed", [])] == [1], step)
+        with chat_file.open("a", encoding="utf-8") as f:
+            f.write(row("assistant", [{"type": "text", "text": "half"}])[20:])
+            f.write(row("user", [{"type": "tool_result", "tool_use_id": "tu1", "content": "a.txt"}], toolUseResult={"stdout": "a.txt", "stderr": ""}))
+        done = api("GET", f"/api/chat?session={chat_sid}&since={step['rev']}&gen={step['gen']}")
+        changed = dict((i, it) for i, it in done.get("changed", []))
+        check("a finished step updates in place", changed.get(1, {}).get("res", {}).get("stdout") == "a.txt" and done.get("count") == 3, done)
+        check("a half-written line is shown once complete", changed.get(2, {}).get("text") == "half", done)
+        chat_file.write_text(row("user", "again"), encoding="utf-8")
+        redo = api("GET", f"/api/chat?session={chat_sid}&since={done['rev']}&gen={done['gen']}")
+        check("a rewritten chat is sent in full", [i["text"] for i in redo.get("items", [])] == ["again"], redo)
 
         # ---- a workspace terminal runs claude
         terms = api("GET", "/api/terms")
@@ -253,7 +291,7 @@ def main():
                                 input=json.dumps({"session_id": SID, "rate_limits": {"five_hour": {"used_percentage": 12}}}).encode())
         check("status line prints", status.stdout.decode("utf-8", "replace").strip() == "◉ Orbit · 5h 12%", status.stdout)
         version = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "version"], env=env, capture_output=True, timeout=20)
-        check("orbit version", version.stdout.decode().strip() == "Orbit 3.5.0", version.stdout + version.stderr)
+        check("orbit version", version.stdout.decode().strip() == "Orbit 3.6.0", version.stdout + version.stderr)
         link = subprocess.run(["sh", str(SCRIPTS / "run.sh"), "cli.py", "url"], env=env, capture_output=True, timeout=20)
         check("orbit url gives the private link", link.stdout.decode().strip() == f"{URL}/?k={key()}", link.stdout + link.stderr)
         inst = subprocess.run([sys.executable, str(SCRIPTS / "cli.py"), "install-hooks", "--force"], env=env, capture_output=True, timeout=20)

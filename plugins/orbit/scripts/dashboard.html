@@ -530,7 +530,7 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
 .md table { border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; display: block; overflow: auto; }
 .md th, .md td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; vertical-align: top; } .md th { background: var(--panel-strong); }
 .msg.work { margin-left: 42px; }
-.work-h { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 12px; border-radius: 12px; border: 1px dashed var(--border-strong); background: var(--panel); color: var(--text); cursor: pointer; transition: border-color .2s; }
+.work-h { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); cursor: pointer; transition: border-color .2s; }
 .work-h:hover { border-color: var(--accent); }
 .wicons { display: flex; flex: none; }
 .wicons span { --c: var(--c-tool); width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 18%, var(--glass-strong)); margin-right: -5px; border: 1px solid var(--glass-strong); }
@@ -538,11 +538,30 @@ mark { background: color-mix(in srgb, var(--c-wait) 40%, transparent); color: in
 .work-h b { font-size: 12.5px; margin-left: 6px; white-space: nowrap; } .work-h small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .work-h .chev { margin-left: auto; color: var(--muted); transition: transform .25s; } .work.open .chev { transform: rotate(90deg); }
 .work-b { display: grid; gap: 4px; margin-top: 6px; animation: fadeUp .3s both; }
-.wrow { --c: var(--c-tool); display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 12.5px; transition: border-color .2s, background .2s; }
+.wrow { --c: var(--c-tool); display: grid; grid-template-columns: 24px auto minmax(0, 1fr) auto auto; gap: 8px; width: 100%; align-items: center; text-align: left; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 12.5px; transition: border-color .2s, background .2s; }
 .wrow:hover { border-color: var(--c); background: color-mix(in srgb, var(--c) 8%, transparent); }
 .wrow .tl-icon { width: 24px; height: 24px; border-radius: 7px; } .wrow .tl-icon svg { width: 13px; height: 13px; }
 .wrow .s { font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wrow em { font-style: normal; font-size: 11px; color: var(--faint); white-space: nowrap; } .wrow.failed { --c: var(--c-fail); } .wrow.failed em { color: var(--c-fail); }
+/* what Claude did: each step with a look at the code it changed or the command it ran */
+.wstep { display: grid; gap: 0; min-width: 0; }
+.wstep:has(.wpv) .wrow { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.wpv { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; border-top: 0; cursor: pointer; max-height: 320px; overflow: hidden; font: 11.5px/1.5 var(--mono); transition: border-color .2s; }
+.wstep:hover .wpv, .wstep:hover .wrow { border-color: var(--accent); }
+.wpv.code.diff { padding: 4px 0; }
+.wpv .more { text-align: center; font-style: normal; }
+.wterm { background: var(--term-bg, var(--code-bg)); color: #d8deea; border: 1px solid var(--border); border-radius: 0 0 10px 10px; padding: 8px 12px; white-space: pre-wrap; word-break: break-word; }
+.wterm .ps { color: var(--c-cmd); font-weight: 700; } .wterm .o { color: #aab3c5; margin-top: 4px; } .wterm .e { color: var(--c-fail); margin-top: 4px; } .wterm .wait { font-style: italic; }
+.wnote { border: 1px solid var(--border); border-radius: 0 0 10px 10px; padding: 8px 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; background: var(--panel); }
+.wdelta { font: 11px var(--mono); white-space: nowrap; } .wdelta ins { color: var(--c-edit); text-decoration: none; } .wdelta del { color: var(--c-fail); text-decoration: none; }
+.work-h .wdelta { margin-left: 4px; }
+.wrow.run em { color: var(--c-edit); } .wrow.run .tl-icon { animation: ping 1.4s infinite; }
+.msg.work.running .work-h { border-color: color-mix(in srgb, var(--c-edit) 55%, var(--border)); box-shadow: 0 0 22px -10px var(--c-edit); }
+.ch-live { max-width: 920px; margin: 14px auto 0; display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--c-edit) 45%, var(--border)); background: color-mix(in srgb, var(--c-edit) 8%, var(--panel)); font-size: 12.5px; position: sticky; bottom: 0; }
+.ch-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--c-edit); animation: ping 1.4s infinite; flex: none; }
+.ch-live span { font: 11.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.ch-live em { font-style: normal; font-size: 11px; color: var(--faint); }
+.ch-item.still { animation: none; }
 .msg.turn, .msg.note, .msg.cmdline { justify-self: center; font-size: 11.5px; color: var(--faint); padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); max-width: 80%; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg.cmdline { font-family: var(--mono); color: var(--accent); justify-self: end; }
 .msg.hit { animation: hitFlash 2.4s ease-out both; }
@@ -3098,7 +3117,7 @@ $("reportMenu").addEventListener("click", async (e) => {
 });
 
 // ---------- chats: every conversation saved on this computer ----------
-const CH = { list: [], chat: null, active: null, q: "", hits: null, blocks: [], shown: 0, timer: 0, searchTimer: 0, searchSeq: 0 };
+const CH = { list: [], chat: null, active: null, q: "", hits: null, blocks: [], sigs: [], shown: 0, timer: 0, searchTimer: 0, searchSeq: 0, busy: false, again: false, listTimer: 0, listBusy: false, closed: new Set() };
 function cleanPrompt(t) {
   const s = String(t || ""), m = s.match(/<command-name>([^<]*)<\/command-name>/);
   if (m) { const a = s.match(/<command-args>([^<]*)<\/command-args>/); return (m[1] + " " + (a?.[1] || "")).trim(); }
@@ -3106,16 +3125,23 @@ function cleanPrompt(t) {
 }
 const chatTitle = (x) => x.title || cleanPrompt(x.first_prompt) || "Untitled conversation";
 const fmtSize = (n) => (n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB");
-async function loadHistory() {
-  try { CH.list = (await getJSON("/api/history")).sessions; } catch { CH.list = []; }
-  renderChatList();
+async function loadHistory(quiet = false) {
+  if (CH.listBusy) return;
+  CH.listBusy = true;
+  try { CH.list = (await getJSON("/api/history")).sessions; } catch { if (!quiet) CH.list = []; } finally { CH.listBusy = false; }
+  renderChatList(quiet);
+}
+// A saved conversation grew or appeared: refresh the list (at most every 2.5 s) while the Chats view is open
+function historyChanged() {
+  if (document.body.dataset.view !== "chats" || CH.listTimer) return;
+  CH.listTimer = setTimeout(() => { CH.listTimer = 0; if (document.body.dataset.view === "chats") loadHistory(true); }, 2500);
 }
 function openChats() {
   CH.active = null;
   $("chPane").innerHTML = `<div class="ch-empty"><div class="de-orb"></div><h3>Every conversation, in one place</h3><p>Pick a conversation on the left. This includes every Claude Code session saved on this computer, from any terminal, even ones from before Orbit was installed.</p></div>`;
   loadHistory();
 }
-function renderChatList() {
+function renderChatList(quiet = false) {
   const q = CH.q;
   const list = CH.list.filter((x) => !q || (chatTitle(x) + " " + x.first_prompt + " " + x.last_prompt + " " + x.cwd).toLowerCase().includes(q) || CH.hits?.has(x.id));
   $("chCount").textContent = `${list.length} of ${CH.list.length}`;
@@ -3124,7 +3150,7 @@ function renderChatList() {
   let i = 0;
   $("chList").innerHTML = [...groups].map(([cwd, items]) => `<div class="ch-gh">${svg("folder")}<b>${esc(base(cwd) || cwd)}</b><small>${esc(tilde(cwd))}</small><span>${items.length}</span></div>` + items.map((x) => {
     const s = sessions.get(x.id), st = s ? sessionState(s) : "";
-    return `<button class="ch-item${x.id === CH.active ? " on" : ""}" data-id="${esc(x.id)}" style="animation-delay:${Math.min(i++, 20) * 25}ms"><div class="ch-t">${esc(chatTitle(x))}</div><div class="ch-m">${st === "working" || st === "needs" ? "<i></i>" : ""}<span>${ago(x.end)}</span><span>·</span><span>${fmtSize(x.size)}</span>${CH.hits?.has(x.id) ? '<span class="hitc">· match inside</span>' : ""}</div><div class="ch-p">${esc(cleanPrompt(x.last_prompt || x.first_prompt))}</div></button>`;
+    return `<button class="ch-item${x.id === CH.active ? " on" : ""}${quiet ? " still" : ""}" data-id="${esc(x.id)}" style="animation-delay:${Math.min(i++, 20) * 25}ms"><div class="ch-t">${esc(chatTitle(x))}</div><div class="ch-m">${st === "working" || st === "needs" ? "<i></i>" : ""}<span>${ago(x.end)}</span><span>·</span><span>${fmtSize(x.size)}</span>${CH.hits?.has(x.id) ? '<span class="hitc">· match inside</span>' : ""}</div><div class="ch-p">${esc(cleanPrompt(x.last_prompt || x.first_prompt))}</div></button>`;
   }).join("")).join("") || `<div class="m-empty">${q ? "No conversations match." : "No saved conversations found."}</div>`;
 }
 $("chList").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b) location.hash = "#/chat/" + encodeURIComponent(b.dataset.id); });
@@ -3154,23 +3180,51 @@ async function openChat(id) {
     if (CH.active !== id) return;
     CH.chat = c;
     renderChat();
-    pollChat();
   } catch { if (CH.active === id) $("chPane").innerHTML = `<div class="ch-empty"><h3>Conversation not found</h3><p>Claude Code may have deleted it, or it was never saved.</p></div>`; }
 }
-function pollChat() {
-  clearTimeout(CH.timer);
+// Brings the open conversation up to date. The server sends only what changed since the version the page has
+// (or everything, if the file was rewritten). Called when the server says the file changed, on reconnect,
+// when the page comes back into view, and every few seconds as a safety net. Never runs twice at once.
+async function syncChat() {
   const c = CH.chat, id = c?.id;
-  if (!c) return;
-  const s = sessions.get(id), recent = (s && Date.now() / 1000 - s.last < 900) || Date.now() / 1000 - (c.items[c.items.length - 1]?.t || 0) < 900;
-  if (!recent) return;
-  CH.timer = setTimeout(async () => {
-    if (CH.active !== id || document.body.dataset.view !== "chats") return;
-    try {
-      const n = await getJSON("/api/chat?session=" + encodeURIComponent(id));
-      if (CH.active === id && n.items.length !== c.items.length) { const sc = $("chScroll"), atEnd = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 120; CH.chat = n; renderChat(CH.blocks.length, atEnd); }
-    } catch {}
-    pollChat();
-  }, 4000);
+  if (!c || CH.active !== id || document.body.dataset.view !== "chats") return;
+  if (CH.busy) { CH.again = true; return; }
+  CH.busy = true;
+  try {
+    const n = await getJSON(`/api/chat?session=${encodeURIComponent(id)}&since=${c.rev}&gen=${encodeURIComponent(c.gen)}`);
+    if (CH.chat !== c || CH.active !== id) return;
+    const reset = !!n.items, changed = reset || n.changed.length || n.count !== c.items.length || n.title !== c.title;
+    if (reset) c.items = n.items;
+    else for (const [i, it] of n.changed) c.items[i] = it;
+    c.items.length = n.count;
+    Object.assign(c, { title: n.title, cwd: n.cwd || c.cwd, rev: n.rev, gen: n.gen, usage: n.usage });
+    if (changed) {
+      const sc = $("chScroll"), atEnd = !sc || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+      renderChat(!reset, atEnd);
+    } else renderChatLive();
+  } catch {} finally {
+    CH.busy = false;
+    if (CH.again) { CH.again = false; syncChat(); }
+  }
+}
+setInterval(() => { if (!document.hidden) syncChat(); }, 5000);
+setInterval(() => { if (CH.chat && document.body.dataset.view === "chats") renderChatLive(); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { syncChat(); historyChanged(); } });
+// Is Claude working in this conversation right now?
+function chatWorking(id) {
+  const lv = LIVE.get(id), s = sessions.get(id);
+  return (lv && liveState(lv) === "working") || (s && sessionState(s) === "working");
+}
+// The bar under the conversation that says what Claude is doing this moment
+function renderChatLive() {
+  const c = CH.chat, bar = $("chLive");
+  if (!c || !bar) return;
+  const on = chatWorking(c.id);
+  bar.classList.toggle("hidden", !on);
+  if (!on) return;
+  const run = [...c.items].reverse().find((x) => x.k === "tool" && !x.end);
+  const [what, detail] = run ? nowText(chatStep(run, c)) : ["Thinking", "Claude is working out what to do next"];
+  bar.innerHTML = `<i></i><b>${esc(what)}</b><span>${esc(tilde(detail || ""))}</span>${run ? `<em>${dur(Math.max(0, Date.now() / 1000 - run.t))}</em>` : ""}`;
 }
 function chatBlocks(items) {
   const out = [];
@@ -3235,6 +3289,44 @@ function mdRender(src) {
   }
   return out.join("");
 }
+// One row per step, and under it a look at what the step did: the code changed, the command and what it printed,
+// the task given to a sub-agent. Click a row or its preview for the full view.
+function workBody(b, live) {
+  return b.tools.map((t, k) => {
+    const st = chatStep(t, CH.chat), cat = t.ok === false ? "fail" : toolCat(t.name), run = !t.end && live;
+    const time = t.ok === false ? "failed" : t.end ? (t.end - t.t).toFixed(1) + "s" : run ? "running…" : "";
+    const delta = toolCat(t.name) === "edit" ? lineDelta(st) : null;
+    return `<div class="wstep"><button class="wrow cat-${cat}${t.ok === false ? " failed" : ""}${run ? " run" : ""}" data-k="${k}" type="button"><span class="tl-icon">${svg(cat)}</span><b>${esc(label(t.name))}</b><span class="s">${esc(summarise(t.name, t.input))}</span>${delta && (delta[0] || delta[1]) ? `<span class="wdelta"><ins>+${delta[0]}</ins> <del>−${delta[1]}</del></span>` : ""}<em>${time}</em></button>${stepPreview(t, st, run)}</div>`;
+  }).join("");
+}
+const PV_ROWS = 14;
+function stepPreview(t, st, run) {
+  if (t._pv !== undefined && !run) return t._pv;
+  let html = "";
+  const cat = toolCat(t.name);
+  if (cat === "edit") {
+    const rows = [];
+    for (const [a, b] of editPairs(st)) {
+      const al = String(a).split("\n").length, bl = String(b).split("\n").length;
+      // very large rewrites: show the new text rather than working out a line-by-line difference
+      const diff = al * bl > 250000 ? String(b).split("\n").map((l) => ["add", l]) : foldRows(diffLines(a, b), 2);
+      if (rows.length) rows.push(["gap", 0]);
+      rows.push(...diff);
+    }
+    if (rows.length) {
+      const shown = rows.slice(0, PV_ROWS);
+      html = `<div class="wpv code diff">${shown.map(([k, l]) => k === "gap" ? `<div class="gap">${l ? `⋯ ${l} unchanged line${l > 1 ? "s" : ""}` : "⋯"}</div>` : `<div class="${k}">${esc(l) || " "}</div>`).join("")}${rows.length > PV_ROWS ? `<div class="gap more">${rows.length - PV_ROWS} more lines · click to see the whole change</div>` : ""}</div>`;
+    }
+  } else if (cat === "cmd" && t.name === "Bash") {
+    const [out, err] = bashOut(st.response);
+    const tail = (x, n) => { const l = String(x).replace(/\n+$/, "").split("\n"); return l.length > n ? `… ${l.length - n} earlier lines\n` + l.slice(-n).join("\n") : l.join("\n"); };
+    html = `<div class="wpv wterm"><div><span class="ps">$</span> ${esc(t.input?.command || "")}</div>${out.trim() ? `<div class="o">${esc(tail(out, 8))}</div>` : ""}${err.trim() ? `<div class="e">${esc(tail(err, 6))}</div>` : ""}${run ? `<div class="o wait">running…</div>` : ""}</div>`;
+  } else if (cat === "agent" && t.input?.prompt) {
+    html = `<div class="wpv wnote">${esc(clipLines(t.input.prompt, 4))}</div>`;
+  }
+  if (!run) t._pv = html;
+  return html;
+}
 function blockHtml(b, i, cost, anim) {
   const cls = anim ? "" : " still", delay = anim ? ` style="animation-delay:${anim}ms"` : "";
   const time = b.t ? new Date(b.t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
@@ -3245,44 +3337,69 @@ function blockHtml(b, i, cost, anim) {
     case "turn": return `<div class="msg turn${cls}"${delay} data-b="${i}">Worked for ${dur((b.ms || 0) / 1000)}</div>`;
     case "note": return `<div class="msg note${cls}"${delay} data-b="${i}" title="${esc(b.text)}">${esc(cleanPrompt(b.text).slice(0, 160))}</div>`;
     case "work": {
-      const counts = {}; let fails = 0;
-      for (const t of b.tools) { const c = toolCat(t.name); counts[c] = (counts[c] || 0) + 1; if (t.ok === false) fails++; }
+      const counts = {}; let fails = 0, add = 0, del = 0;
+      const live = chatWorking(CH.chat.id);
+      for (const t of b.tools) {
+        const c = toolCat(t.name); counts[c] = (counts[c] || 0) + 1; if (t.ok === false) fails++;
+        if (c === "edit") { const [x, y] = lineDelta(chatStep(t, CH.chat)); add += x; del += y; }
+      }
+      const running = live && b.tools.some((t) => !t.end);
       const names = { edit: "edit", read: "read", cmd: "command", search: "search", web: "web", agent: "sub-agent", mcp: "MCP call", tool: "other" };
       const summary = Object.entries(counts).map(([c, n]) => `${n} ${names[c]}${n > 1 ? "s" : ""}`).concat(fails ? [`${fails} failed`] : []).join(" · ");
       const icons = b.tools.slice(0, 14).map((t) => `<span class="cat-${t.ok === false ? "fail" : toolCat(t.name)}">${svg(t.ok === false ? "fail" : toolCat(t.name))}</span>`).join("");
-      return `<div class="msg work${cls}"${delay} data-b="${i}"><button class="work-h" type="button"><span class="wicons">${icons}</span><b>${b.tools.length} step${b.tools.length > 1 ? "s" : ""}</b><small>${esc(summary)}</small><span class="chev">▸</span></button><div class="work-b hidden"></div></div>`;
+      const open = !CH.closed.has(b.tools[0].id);
+      return `<div class="msg work${open ? " open" : ""}${running ? " running" : ""}${cls}"${delay} data-b="${i}"><button class="work-h" type="button" aria-expanded="${open}"><span class="wicons">${icons}</span><b>${running ? "Working… " : ""}${b.tools.length} step${b.tools.length > 1 ? "s" : ""}</b><small>${esc(summary)}</small>${add || del ? `<span class="wdelta"><ins>+${add}</ins> <del>−${del}</del></span>` : ""}<span class="chev">▸</span></button><div class="work-b${open ? "" : " hidden"}">${open ? workBody(b, live) : ""}</div></div>`;
     }
     default: return "";
   }
 }
-function renderChat(prevBlocks = null, stickBottom = true) {
-  const c = CH.chat, pane = $("chPane");
-  const blocks = (CH.blocks = chatBlocks(c.items));
-  const prompts = c.items.filter((x) => x.k === "user");
-  const costs = turnCostsFor(prompts.map((p) => p.t), c.usage?.requests || []);
-  CH.costOf = new Map(prompts.map((p, i) => [p, costs[i]]));
-  const tools = c.items.filter((x) => x.k === "tool"), u = c.usage?.totals;
+function chatFacts(c) {
+  const prompts = c.items.filter((x) => x.k === "user"), tools = c.items.filter((x) => x.k === "tool");
   const files = new Set(tools.filter((x) => toolCat(x.name) === "edit").map((x) => x.input?.file_path).filter(Boolean));
-  const first = c.items[0]?.t, last = c.items[c.items.length - 1]?.t;
-  const fresh = prevBlocks == null;
+  return { prompts, tools, files, cmds: tools.filter((x) => toolCat(x.name) === "cmd").length, first: c.items[0]?.t, last: c.items[c.items.length - 1]?.t };
+}
+function renderChatHead(c, f) {
+  $("chTitle").textContent = c.title || chatTitle({ first_prompt: f.prompts[0]?.text || "" });
+  $("chSub").textContent = `${tilde(c.cwd)} · ${f.first ? new Date(f.first * 1000).toLocaleString() : ""}${f.last ? " → " + new Date(f.last * 1000).toLocaleString() : ""}`;
+  $("chNP").textContent = f.prompts.length; $("chNS").textContent = f.tools.length; $("chNF").textContent = f.files.size; $("chNC").textContent = f.cmds;
+  $("chDur").textContent = f.first && f.last ? dur(f.last - f.first) : "—";
+  const u = c.usage?.totals;
+  $("chTok").textContent = fmtTok(u?.tokens || 0);
+  $("chOdo").parentElement.title = usageTip(c.usage);
+  odoSet($("chOdo"), fmtUSD(u?.requests ? u.cost : 0));
+}
+// update = true: bring an open conversation up to date in place (new messages slide in, finished steps
+// fill in, open step lists stay open, the reader's scroll position stays put unless they were at the end)
+function renderChat(update = false, stickBottom = true) {
+  const c = CH.chat, pane = $("chPane");
+  const prev = CH.blocks.length;
+  const blocks = (CH.blocks = chatBlocks(c.items));
+  const f = chatFacts(c);
+  const costs = turnCostsFor(f.prompts.map((p) => p.t), c.usage?.requests || []);
+  CH.costOf = new Map(f.prompts.map((p, i) => [p, costs[i]]));
+  const fresh = !update || !$("chMsgs");
   if (fresh) {
     CH.shown = Math.min(blocks.length, 120);
-    pane.innerHTML = `<div class="ch-top"><div class="ch-title">${esc(c.title || chatTitle({ first_prompt: prompts[0]?.text || "" }))}</div>
-<div class="ch-sub">${esc(tilde(c.cwd))} · ${first ? esc(new Date(first * 1000).toLocaleString()) : ""}${last ? " → " + esc(new Date(last * 1000).toLocaleString()) : ""}</div>
-<div class="ch-stats"><div><b>${prompts.length}</b>prompts</div><div><b>${tools.length}</b>steps</div><div><b>${files.size}</b>files changed</div><div><b>${tools.filter((x) => toolCat(x.name) === "cmd").length}</b>commands</div><div class="gold"><b class="odo" id="chOdo">$0.00</b>est. cost · ${fmtTok(u?.tokens || 0)} tokens</div>${first && last ? `<div><b>${dur(last - first)}</b>start to finish</div>` : ""}</div>
+    pane.innerHTML = `<div class="ch-top"><div class="ch-title" id="chTitle"></div>
+<div class="ch-sub" id="chSub"></div>
+<div class="ch-stats"><div><b id="chNP"></b>prompts</div><div><b id="chNS"></b>steps</div><div><b id="chNF"></b>files changed</div><div><b id="chNC"></b>commands</div><div class="gold"><b class="odo" id="chOdo">$0.00</b>est. cost · <span id="chTok"></span> tokens</div><div><b id="chDur"></b>start to finish</div></div>
 <div class="ch-actions"><button class="btn primary" id="chResume" ${termSupport.supported && termSupport.claude ? "" : "disabled title=\"Built-in sessions need Claude Code installed, on macOS, Linux or Windows 10 (1809) or later\""}>Continue this conversation</button><button class="btn" id="chMap">Show on the map</button><button class="btn" id="chReplay">▶ Replay on the map</button><button class="btn" id="chExport">Export Markdown</button></div></div>
-<div class="ch-scroll" id="chScroll"><div class="ch-msgs" id="chMsgs"></div></div>`;
+<div class="ch-scroll" id="chScroll"><div class="ch-msgs" id="chMsgs"></div><div class="ch-live hidden" id="chLive"></div></div>`;
     $("chResume").onclick = () => launch(c.cwd || "~", "resume", null, c.id);
     $("chMap").onclick = () => showChatOnMap(false);
     $("chReplay").onclick = () => showChatOnMap(true);
     $("chExport").onclick = () => download(`orbit-chat-${slug(c.title || c.id)}.md`, chatMarkdown(c), "text/markdown");
-    $("chOdo").parentElement.title = usageTip(c.usage);
-    requestAnimationFrame(() => odoSet($("chOdo"), fmtUSD(u?.requests ? u.cost : 0)));
-  } else {
-    CH.shown = Math.min(blocks.length, CH.shown + (blocks.length - prevBlocks));
-    odoSet($("chOdo"), fmtUSD(u?.requests ? u.cost : 0));
-  }
-  renderMsgs(fresh ? 0 : prevBlocks, stickBottom);
+    $("chOdo")._text = null;
+  } else CH.shown = Math.min(blocks.length, CH.shown + Math.max(0, blocks.length - prev));
+  renderChatHead(c, f);
+  if (fresh) renderMsgs(0, stickBottom); else patchMsgs(prev, stickBottom);
+  renderChatLive();
+}
+// What a block looks like on screen; a block is redrawn only when this changes
+function blockSig(b) {
+  const cost = CH.costOf.get(b);
+  if (b.k === "work") return "w" + b.tools.map((t) => (t.ok === false ? "f" : t.end ? "d" : "r")).join("") + (b.tools.some((t) => !t.end) && chatWorking(CH.chat.id) ? "L" : "");
+  return b.k + ":" + (b.text?.length ?? "") + ":" + (b.ms ?? "") + ":" + (cost ? cost.tokens : "");
 }
 function renderMsgs(animateFrom, stickBottom) {
   const blocks = CH.blocks, start = Math.max(0, blocks.length - CH.shown), box = $("chMsgs"), sc = $("chScroll");
@@ -3290,12 +3407,28 @@ function renderMsgs(animateFrom, stickBottom) {
   let html = start > 0 ? `<button class="btn ch-more" id="chMore">Show ${Math.min(120, start)} earlier messages</button>` : "";
   for (let i = start; i < blocks.length; i++) html += blockHtml(blocks[i], i, CH.costOf.get(blocks[i]), MOTION && i >= firstAnimated ? (i - firstAnimated) * 45 + 1 : 0);
   box.innerHTML = html;
+  CH.sigs = blocks.map(blockSig);
   $("chMore")?.addEventListener("click", () => { const h = sc.scrollHeight; CH.shown = Math.min(blocks.length, CH.shown + 120); renderMsgs(-1, false); sc.scrollTop = sc.scrollHeight - h; });
   if (CH.q && animateFrom === 0) {
     CH.shown = blocks.length; // a search hit may be anywhere, so show everything
     if (start > 0) { renderMsgs(-1, false); return jumpToHit(); }
     return jumpToHit();
   }
+  if (stickBottom) requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+}
+// Redraws only the blocks that changed and adds the new ones; everything else is left exactly as it is
+function patchMsgs(prev, stickBottom) {
+  const blocks = CH.blocks, start = Math.max(0, blocks.length - CH.shown), box = $("chMsgs"), sc = $("chScroll");
+  if (blocks.length < prev) { renderMsgs(-1, stickBottom); return; }
+  let k = 0;
+  for (let i = start; i < blocks.length; i++) {
+    const sig = blockSig(blocks[i]), el = box.querySelector(`:scope > [data-b="${i}"]`);
+    if (el && CH.sigs[i] === sig) continue;
+    const html = blockHtml(blocks[i], i, CH.costOf.get(blocks[i]), el || !MOTION ? 0 : ++k * 45);
+    if (el) el.outerHTML = html; else box.insertAdjacentHTML("beforeend", html);
+    CH.sigs[i] = sig;
+  }
+  CH.sigs.length = blocks.length;
   if (stickBottom) requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
 }
 function jumpToHit() {
@@ -3310,16 +3443,18 @@ $("chPane").addEventListener("click", async (e) => {
   const head = e.target.closest(".work-h");
   if (head) {
     const msg = head.parentElement, b = CH.blocks[+msg.dataset.b], body = msg.querySelector(".work-b");
-    msg.classList.toggle("open");
-    if (!body.childElementCount) body.innerHTML = b.tools.map((t, k) => { const cat = t.ok === false ? "fail" : toolCat(t.name); return `<button class="wrow cat-${cat}${t.ok === false ? " failed" : ""}" data-k="${k}" type="button"><span class="tl-icon">${svg(cat)}</span><b>${esc(label(t.name))}</b><span class="s">${esc(summarise(t.name, t.input))}</span><em>${t.ok === false ? "failed" : t.end ? (t.end - t.t).toFixed(1) + "s" : ""}</em></button>`; }).join("");
-    body.classList.toggle("hidden", !msg.classList.contains("open"));
+    const open = msg.classList.toggle("open");
+    head.setAttribute("aria-expanded", open);
+    if (open) CH.closed.delete(b.tools[0].id); else CH.closed.add(b.tools[0].id);
+    if (open && !body.childElementCount) body.innerHTML = workBody(b, chatWorking(CH.chat.id));
+    body.classList.toggle("hidden", !open);
     return;
   }
-  const row = e.target.closest(".wrow");
-  if (row) {
-    const b = CH.blocks[+row.closest(".msg").dataset.b], c = CH.chat;
+  const step = e.target.closest(".wstep");
+  if (step && !window.getSelection()?.toString()) {
+    const b = CH.blocks[+step.closest(".msg").dataset.b], c = CH.chat, k = +step.querySelector(".wrow").dataset.k;
     const all = c.items.filter((x) => x.k === "tool").map((x) => chatStep(x, c));
-    openFocus(chatStep(b.tools[+row.dataset.k], c), all);
+    openFocus(chatStep(b.tools[k], c), all);
   }
 });
 function chatToEvents(c) {
@@ -3398,6 +3533,7 @@ async function start() {
       try { e = JSON.parse(m.data); } catch { return; }
       if (e.kind === "hello" || e.kind === "ping") {
         if (boot && e.boot !== boot) { location.reload(); return; }   // the server restarted: reload to resync
+        if (e.kind === "hello" && boot) { syncChat(); historyChanged(); }   // reconnected: catch up on anything missed
         boot = e.boot;
         $("dot").classList.add("live"); $("conn").textContent = "Live";
         if (e.last > maxId) catchUp();
@@ -3406,6 +3542,8 @@ async function start() {
       if (e.kind === "terminal") { if (ready) safe(upsertTermInfo, e.terminal); return; }
       if (e.kind === "status") { U.status[e.session_id] = e.status; safe(renderAllRings); return; }
       if (e.kind === "live") { safe(setLive, e.sessions); return; }
+      if (e.kind === "chat") { if (CH.chat?.id === e.session_id && CH.active === e.session_id) syncChat(); return; }
+      if (e.kind === "history") { historyChanged(); return; }
       if (e.kind === "output") { const st = byKey.get(e.tool_use_id) || bgSteps.get(e.tool_use_id); if (st && (st.status === "running" || st.bg?.status === "running")) st.liveOut = e.text; return; }
       if (!ready) { buffer.push(e); return; }
       if (e.id <= maxId) return;
